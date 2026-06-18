@@ -6,6 +6,11 @@ from scipy.io import wavfile
 from scipy import signal
 from sklearn.decomposition import NMF
 import traceback
+import librosa
+import librosa.display
+import datetime
+import re
+import matplotlib.dates as mdates
 
 def load_and_concatenate(file_dir):
     """
@@ -21,9 +26,17 @@ def load_and_concatenate(file_dir):
     
     all_data = []
     base_samplerate = None
+    start_time = None
     
     print(f"Found {len(files)} .wav files. Concatenating into a continuous timeline...")
     for f in files:
+        if start_time is None:
+            basename = os.path.basename(f)
+            match = re.search(r'(\d{8})_(\d{6})', basename)
+            if match:
+                date_str, time_str = match.groups()
+                start_time = datetime.datetime.strptime(f"{date_str}_{time_str}", "%Y%m%d_%H%M%S")
+                
         sr, data = wavfile.read(f)
         
         # Check if data is empty or too small
@@ -45,7 +58,7 @@ def load_and_concatenate(file_dir):
     if not all_data:
         raise ValueError("All files were empty or could not be read.")
         
-    return base_samplerate, np.concatenate(all_data)
+    return base_samplerate, np.concatenate(all_data), start_time
 
 def plot_histogram(data):
     """Plots a single amplitude histogram of the given data."""
@@ -65,13 +78,51 @@ def plot_histogram(data):
         clean_data = clean_data[::step]
     
     # compute the histogram values directly to avoid negative index issues
-    counts, bins = np.histogram(clean_data, bins=100)
+    # cast to float64 to prevent integer overflow in numpy's internal bin index calculation
+    counts, bins = np.histogram(clean_data.astype(np.float64), bins=100)
     
     plt.stairs(counts, bins, fill=True, alpha=0.75, color='blue')
     plt.title("Amplitude Histogram of Continuous Timeline Signal")
     plt.xlabel("Amplitude")
     plt.ylabel("Frequency (Count)")
     plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+def plot_mel_spectrogram(samplerate, data, start_time=None):
+    """Plots the Mel spectrogram of the given data."""
+    # Remove NaNs and Infs if any exist
+    clean_data = data[np.isfinite(data)].astype(np.float32)
+    
+    # Normalize to avoid numerical issues
+    max_val = np.max(np.abs(clean_data))
+    if max_val > 0:
+        clean_data = clean_data / max_val
+        
+    # Choose hop_length to target around 2000 frames to avoid OOM and slow plotting
+    target_frames = 2000
+    hop_length = max(512, len(clean_data) // target_frames)
+    n_fft = 8192
+    
+    print(f"Computing Mel Spectrogram with n_fft={n_fft}, hop_length={hop_length}...")
+    S = librosa.feature.melspectrogram(y=clean_data, sr=samplerate, n_fft=n_fft, hop_length=hop_length, n_mels=128)
+    S_dB = librosa.power_to_db(S, ref=np.max)
+    
+    plt.figure(figsize=(12, 6))
+    
+    if start_time is not None:
+        librosa.display.specshow(S_dB, sr=samplerate, hop_length=hop_length, x_axis='time', y_axis='mel')
+        def time_formatter(x, pos):
+            dt = start_time + datetime.timedelta(seconds=x)
+            return dt.strftime('%H:%M:%S')
+            
+        plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(time_formatter))
+        plt.xlabel("Actual Time")
+    else:
+        librosa.display.specshow(S_dB, sr=samplerate, hop_length=hop_length, x_axis='time', y_axis='mel')
+        
+    plt.title("Mel Spectrogram")
+    plt.colorbar(format='%+2.0f dB')
     plt.tight_layout()
     plt.show()
 
@@ -157,11 +208,13 @@ def compute_and_plot_nmf(samplerate, data, n_components=2):
     plt.show()
 
 if __name__ == '__main__':
-    DIR_PATH = "C:\\Users\\Roy\\Downloads\\recordings\\scooter"
-    
+    # DIR_PATH = "C:\\Users\\Roy\\Downloads\\recordings\\scooter"
+    # DIR_PATH = r"C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2407_2"
+    DIR_PATH = r"C:\Users\Roy\Recordings\clean\scooter"
+
     try:
         # Load and concatenate all .wav files to form a continuous timeline
-        sample_rate, continuous_data = load_and_concatenate(DIR_PATH)
+        sample_rate, continuous_data, start_time = load_and_concatenate(DIR_PATH)
 
         print(f"Successfully loaded data. Shape: {continuous_data.shape}, Type: {continuous_data.dtype}")
         
@@ -170,6 +223,9 @@ if __name__ == '__main__':
         
         # Plot Welch's power spectral density as requested previously
         plot_welch(sample_rate, continuous_data)
+        
+        # Plot Mel Spectrogram of the continuous signal
+        plot_mel_spectrogram(sample_rate, continuous_data, start_time=start_time)
         
     except FileNotFoundError as err:
         print(err)
