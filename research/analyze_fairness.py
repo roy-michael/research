@@ -231,8 +231,8 @@ def main():
     dir3 = r"C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2307"
     dir4 = r"C:\Users\Roy\Recordings\Garda_2_26\1_Shallow Water\Petrol"
 
-    segment_sizes = [1]
-    buffer_sizes = [5]
+    segment_sizes = [2]
+    buffer_sizes = [15]
     
     labels = ['2407_2', 'Garda Petrol', '2307', 'Garda Shallow Petrol']
     colors = ['dodgerblue', 'crimson', 'mediumseagreen', 'darkviolet']
@@ -242,8 +242,8 @@ def main():
         print(f"Extracting Data for Segment Size: {SEGMENT_SEC} seconds")
         print(f"=======================================================\n")
         
-        f1, a1, p1 = extract_frequencies_for_dir(dir1, limit=None, min_freq=200, max_freq=2000, segment_length_seconds=SEGMENT_SEC)
-        f3, a3, p3 = extract_frequencies_for_dir(dir3, limit=None, min_freq=200, max_freq=2000, segment_length_seconds=SEGMENT_SEC)
+        f1, a1, p1 = extract_frequencies_for_dir(dir1, limit=None, min_freq=300, max_freq=1500, segment_length_seconds=SEGMENT_SEC)
+        f3, a3, p3 = extract_frequencies_for_dir(dir3, limit=None, min_freq=300, max_freq=1500, segment_length_seconds=SEGMENT_SEC)
         
         lme_files = glob.glob(os.path.join(dir2, "*.wav"))
         if lme_files:
