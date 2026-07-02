@@ -98,6 +98,7 @@ def extract_frequencies_for_files(file_paths, name, min_freq=150, max_freq=2500,
     all_files_freqs = []
     all_files_amps = []
     all_files_phases = []
+    all_files_pll_freqs = []
     
     for idx, filepath in enumerate(file_paths):
         print(f"[{name}] Processing file {idx+1}/{len(file_paths)}: {os.path.basename(filepath)}")
@@ -108,13 +109,31 @@ def extract_frequencies_for_files(file_paths, name, min_freq=150, max_freq=2500,
         segment_samples = int(segment_length_seconds * samplerate)
         num_segments = len(data) // segment_samples
         
-        freqs, amps, phases = [], [], []
+        freqs, amps, phases, pll_freqs = [], [], [], []
+        
+        # We can pre-process the whole data with downsampling to speed up PLL
+        target_fs = 12000
+        if samplerate > target_fs:
+            factor = samplerate // target_fs
+            if factor > 1:
+                from scipy.signal import decimate
+                data_down = decimate(data, factor, ftype='fir', zero_phase=True)
+                fs_down = samplerate // factor
+            else:
+                data_down = data
+                fs_down = samplerate
+        else:
+            data_down = data
+            fs_down = samplerate
+            
+        data_down = data_down / np.max(np.abs(data_down)) if np.max(np.abs(data_down)) > 1e-6 else data_down
+
         for i in range(num_segments):
             start = i * segment_samples
             end = start + segment_samples
             segment = data[start:end]
             
-            # Use rfft for frequency, amplitude and phase
+            # Use rfft for frequency and amplitude
             fft_vals = np.fft.rfft(segment)
             f = np.fft.rfftfreq(segment_samples, d=1.0/samplerate)
             
@@ -130,21 +149,59 @@ def extract_frequencies_for_files(file_paths, name, min_freq=150, max_freq=2500,
             
             dominant_freq = f[peak_idx]
             peak_amp = np.abs(fft_vals[peak_idx])
-            peak_phase = np.angle(fft_vals[peak_idx])
+            
+            # --- PLL PHASE EXTRACTION ---
+            from analyze_pll import butter_bandpass_filter, digital_pll
+            nyq = 0.5 * fs_down
+            band_low = max(5.0, dominant_freq - 100)
+            band_high = min(nyq - 5.0, dominant_freq * 4 + 100)
+            
+            if band_low >= band_high:
+                # Fallback if frequency is completely out of bounds
+                band_low = max(5.0, nyq * 0.8)
+                band_high = nyq - 5.0
+
+            
+            # Find downsampled segment
+            start_down = i * int(segment_length_seconds * fs_down)
+            end_down = start_down + int(segment_length_seconds * fs_down)
+            segment_down = data_down[start_down:end_down]
+            
+            if np.max(np.abs(segment_down)) > 1e-6:
+                filtered_seg = butter_bandpass_filter(segment_down, band_low, band_high, fs_down, order=4)
+                filtered_seg = filtered_seg / np.max(np.abs(filtered_seg)) if np.max(np.abs(filtered_seg)) > 1e-6 else np.zeros_like(filtered_seg)
+                
+                zeta = 0.707
+                Bn = 20.0
+                wn = 2 * np.pi * Bn / (zeta + 1.0 / (4 * zeta))
+                kp = (2 * zeta * wn) / fs_down
+                ki = (wn * wn) / (fs_down * fs_down)
+                
+                phase_out, freq_out = digital_pll(filtered_seg, fs_down, dominant_freq, kp, ki)
+                
+                # Circular mean over the segment
+                mean_vector = np.sum(np.exp(1j * phase_out)) / len(phase_out)
+                peak_phase = np.angle(mean_vector)
+                pll_freq = np.mean(freq_out)
+            else:
+                peak_phase = 0.0
+                pll_freq = dominant_freq
             
             freqs.append(dominant_freq)
             amps.append(peak_amp)
             phases.append(peak_phase)
+            pll_freqs.append(pll_freq)
             
         all_files_freqs.append(freqs)
         all_files_amps.append(amps)
         all_files_phases.append(phases)
+        all_files_pll_freqs.append(pll_freqs)
         
-    result = (all_files_freqs, all_files_amps, all_files_phases)
+    result = (all_files_freqs, all_files_amps, all_files_phases, all_files_pll_freqs)
     with open(cache_file, "wb") as f:
         pickle.dump(result, f)
         
-    return all_files_freqs, all_files_amps, all_files_phases
+    return all_files_freqs, all_files_amps, all_files_phases, all_files_pll_freqs
 
 def compute_fairness(all_files_freqs, segment_length_seconds, buffer_length_seconds, is_circular=False):
     segments_per_buffer = buffer_length_seconds // segment_length_seconds
@@ -181,9 +238,9 @@ def extract_frequencies_for_dir(directory, limit=None, min_freq=150, max_freq=25
 
 
 def main():
-    dir1 = r"C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2407_2"
+    dir1 = r"C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2407_2_snake"
     dir2 = r"C:\Users\Roy\Recordings\Garda_2_26\2_Deep Water\Petrol"
-    dir3 = r"C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2307"
+    dir3 = r"C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2307_free"
     dir4 = r"C:\Users\Roy\Recordings\Garda_2_26\1_Shallow Water\Petrol"
 
     segment_sizes = [2]
@@ -197,16 +254,16 @@ def main():
         print(f"Extracting Data for Segment Size: {SEGMENT_SEC} seconds")
         print(f"=======================================================\n")
         
-        f1, a1, p1 = extract_frequencies_for_dir(dir1, limit=None, min_freq=300, max_freq=1500, segment_length_seconds=SEGMENT_SEC)
-        f3, a3, p3 = extract_frequencies_for_dir(dir3, limit=None, min_freq=300, max_freq=1500, segment_length_seconds=SEGMENT_SEC)
+        f1, a1, p1, pllf1 = extract_frequencies_for_dir(dir1, limit=None, min_freq=300, max_freq=1500, segment_length_seconds=SEGMENT_SEC)
+        f3, a3, p3, pllf3 = extract_frequencies_for_dir(dir3, limit=None, min_freq=300, max_freq=1500, segment_length_seconds=SEGMENT_SEC)
         
         lme_files = glob.glob(os.path.join(dir2, "*.wav"))
         if lme_files:
-            f2, a2, p2 = extract_frequencies_for_files(lme_files, "Garda Petrol Deep", min_freq=150, max_freq=2000, segment_length_seconds=SEGMENT_SEC)
+            f2, a2, p2, pllf2 = extract_frequencies_for_files(lme_files, "Garda Petrol Deep", min_freq=150, max_freq=2000, segment_length_seconds=SEGMENT_SEC)
         else:
-            f2, a2, p2 = [], [], []
+            f2, a2, p2, pllf2 = [], [], [], []
             
-        f4, a4, p4 = [], [], []
+        f4, a4, p4, pllf4 = [], [], [], []
 
         for BUFFER_SEC in buffer_sizes:
             if BUFFER_SEC // SEGMENT_SEC < 3:
@@ -221,6 +278,12 @@ def main():
             fairness_f3, freqs3 = compute_fairness(f3, SEGMENT_SEC, BUFFER_SEC)
             fairness_f4, freqs4 = compute_fairness(f4, SEGMENT_SEC, BUFFER_SEC)
             
+            # --- PLL Frequencies ---
+            fairness_pllf1, pll_freqs1 = compute_fairness(pllf1, SEGMENT_SEC, BUFFER_SEC)
+            fairness_pllf2, pll_freqs2 = compute_fairness(pllf2, SEGMENT_SEC, BUFFER_SEC)
+            fairness_pllf3, pll_freqs3 = compute_fairness(pllf3, SEGMENT_SEC, BUFFER_SEC)
+            fairness_pllf4, pll_freqs4 = compute_fairness(pllf4, SEGMENT_SEC, BUFFER_SEC)
+            
             # --- Amplitudes ---
             fairness_a1, amps1 = compute_fairness(a1, SEGMENT_SEC, BUFFER_SEC)
             fairness_a2, amps2 = compute_fairness(a2, SEGMENT_SEC, BUFFER_SEC)
@@ -233,13 +296,14 @@ def main():
             fairness_p3, phases3 = compute_fairness(p3, SEGMENT_SEC, BUFFER_SEC, is_circular=True)
             fairness_p4, phases4 = compute_fairness(p4, SEGMENT_SEC, BUFFER_SEC, is_circular=True)
             
-            fig, axes = plt.subplots(6, 2, figsize=(16, 42))
+            fig, axes = plt.subplots(7, 2, figsize=(16, 49))
             ax_freq, ax_freq_heat = axes[0, 0], axes[0, 1]
             ax_amp, ax_amp_heat = axes[1, 0], axes[1, 1]
             ax_phase, ax_phase_heat = axes[2, 0], axes[2, 1]
             ax_fair_f, ax_fair_f_heat = axes[3, 0], axes[3, 1]
-            ax_fair_a, ax_fair_a_heat = axes[4, 0], axes[4, 1]
-            ax_fair_p, ax_fair_p_heat = axes[5, 0], axes[5, 1]
+            ax_fair_pllf, ax_fair_pllf_heat = axes[4, 0], axes[4, 1]
+            ax_fair_a, ax_fair_a_heat = axes[5, 0], axes[5, 1]
+            ax_fair_p, ax_fair_p_heat = axes[6, 0], axes[6, 1]
             
             # --- Frequencies ---
             c1, c2, c3, c4 = plot_histogram(ax_freq, freqs1, freqs2, freqs3, freqs4, np.linspace(150, 2500, 40), labels, colors, f"Histogram of Dominant Frequencies (Hz)", "Frequency (Hz)")
@@ -305,9 +369,22 @@ def main():
             if fairness_p4: ax_fair_p.axvline(np.mean(fairness_p4), color='indigo', linestyle='dashed', linewidth=1.5, label=f'Shallow Petrol Mean: {np.mean(fairness_p4):.2f}')
             ax_fair_p.legend()
 
+            # --- Fairness (PLL Frequency) ---
+            c1, c2, c3, c4 = plot_histogram(ax_fair_pllf, fairness_pllf1, fairness_pllf2, fairness_pllf3, fairness_pllf4, np.linspace(0, 1.05, 43), labels, colors, f"Histogram of PLL Freq Fairness\n(Buf={BUFFER_SEC}s, Seg={SEGMENT_SEC}s)", "Jain's Fairness Index")
+            counts_dict = {'2407_2': c1, 'Garda Petrol': c2}
+            if len(c3): counts_dict['2307'] = c3
+            if len(c4): counts_dict['Garda Shallow Petrol'] = c4
+            keys, _, jsd_mat = calc_kld_matrix(counts_dict, f'PLL Freq Fairness (Seg={SEGMENT_SEC}s, Buf={BUFFER_SEC}s)')
+            plot_divergence_heatmap(ax_fair_pllf_heat, keys, jsd_mat, "JSD Heatmap: PLL Freq Fairness")
+            if fairness_pllf1: ax_fair_pllf.axvline(np.mean(fairness_pllf1), color='navy', linestyle='dashed', linewidth=1.5, label=f'2407_2 Mean: {np.mean(fairness_pllf1):.2f}')
+            if fairness_pllf2: ax_fair_pllf.axvline(np.mean(fairness_pllf2), color='darkred', linestyle='dashed', linewidth=1.5, label=f'Petrol Mean: {np.mean(fairness_pllf2):.2f}')
+            if fairness_pllf3: ax_fair_pllf.axvline(np.mean(fairness_pllf3), color='darkgreen', linestyle='dashed', linewidth=1.5, label=f'2307 Mean: {np.mean(fairness_pllf3):.2f}')
+            if fairness_pllf4: ax_fair_pllf.axvline(np.mean(fairness_pllf4), color='indigo', linestyle='dashed', linewidth=1.5, label=f'Shallow Petrol Mean: {np.mean(fairness_pllf4):.2f}')
+            ax_fair_pllf.legend()
+
             plt.tight_layout()
             
-            output_filename = f"fairness_plot_seg_{SEGMENT_SEC}s_buf_{BUFFER_SEC}s.png"
+            output_filename = f"pll_fairness_plot_seg_{SEGMENT_SEC}s_buf_{BUFFER_SEC}s.png"
             plt.savefig(output_filename, dpi=150, bbox_inches='tight')
             print(f"Saved: {output_filename}")
             plt.close(fig)

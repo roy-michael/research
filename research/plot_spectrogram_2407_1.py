@@ -54,12 +54,11 @@ class DynamicSpectrogram:
         # Request redraw
         self.ax.figure.canvas.draw_idle()
 
-def plot_spectrogram(samplerate, data):
-    # 256k FFT = 256 * 1024
-    nfft = 262144
-    noverlap = nfft // 2
+def plot_spectrogram(samplerate, data, nfft=524288, overlap_ratio=0.9):
+    # 512k FFT = 512 * 1024
+    noverlap = int(nfft * overlap_ratio)
     
-    print(f"Computing spectrogram with nperseg={nfft}, noverlap={noverlap}...")
+    print(f"Computing spectrogram with nperseg={nfft}, noverlap={noverlap} ({(overlap_ratio*100):.1f}% overlap)...")
     f, t, Sxx = signal.spectrogram(
         data, 
         fs=samplerate, 
