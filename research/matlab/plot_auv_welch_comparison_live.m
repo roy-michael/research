@@ -1,8 +1,8 @@
-% plot_auv_welch_comparison.m
+% plot_auv_welch_comparison_live.m
 % Computes and compares high-resolution Welch PSD for all 10 AUV runs across both hydrophones:
 % - IcListen 6922 (30m depth)
 % - IcListen 6695 (5m depth)
-% Removes DC offset, uses NFFT=65536 for high frequency resolution, and saves auv_all_welch_comparison.png.
+% Removes DC offset, uses NFFT=65536 for high frequency resolution, and opens an interactive window (0-4 kHz).
 
 % Resolve output directory relative to script folder
 script_dir = fileparts(mfilename('fullpath'));
@@ -65,7 +65,7 @@ fprintf(fid, '%s', json_str);
 fclose(fid);
 fprintf('Saved auv_welch_comparison_data.json to output directory\n');
 
-% --- Static Plotting ---
+% --- Interactive Plotting ---
 colors = [
     0.0000 0.4470 0.7410; % Blue (Leg 1 / Straight)
     0.8500 0.3250 0.0980; % Orange (Leg 2 / Straight)
@@ -77,7 +77,7 @@ colors = [
 zoom_ticks = [50, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000];
 zoom_labels = {'50', '500', '1k', '1.5k', '2k', '2.5k', '3k', '3.5k', '4k'};
 
-fig = figure('Name', 'All AUV Welch PSD Comparison', 'Position', [100, 100, 1400, 950], 'Visible', 'off');
+fig = figure('Name', 'All AUV Welch PSD Comparison (Interactive 0-4 kHz)', 'Position', [100, 100, 1400, 950]);
 
 % Subplot 1: H6922 (30m depth)
 ax1 = subplot(2, 1, 1, 'Parent', fig);
@@ -133,6 +133,10 @@ ylabel(ax2, 'PSD [dB re 1 \muPa^2/Hz]');
 title(ax2, 'IcListen 6695 (5m Depth) - All AUV Runs Welch PSD (High Resolution)');
 legend(ax2, 'Location', 'northeast');
 
-saveas(fig, fullfile(output_dir, 'auv_all_welch_comparison.png'));
-fprintf('Saved auv_all_welch_comparison.png to output directory\n');
-close(fig);
+% Link X-axes of both subplots
+linkaxes([ax1, ax2], 'x');
+
+% Enable zoom
+zoom(fig, 'on');
+
+fprintf('Interactive comparative AUV Welch diagram is live!\n');

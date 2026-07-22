@@ -172,11 +172,9 @@ for i = 1:length(fields)
 end
 hold(ax1, 'off');
 grid(ax1, 'on');
-set(ax1, 'XScale', 'log'); 
+set(ax1, 'XScale', 'linear'); 
 xlim(ax1, [50, 40000]);
-set(ax1, 'XTick', log_ticks);
-set(ax1, 'XTickLabel', log_labels);
-xlabel(ax1, 'Frequency [Hz] (Log Scale)');
+xlabel(ax1, 'Frequency [Hz] (Linear Scale)');
 ylabel(ax1, 'PSD [dB re 1 \muPa^2/Hz]');
 title(ax1, 'Narrowband Welch PSD (16384 window, 50% overlap, entire run)');
 legend(ax1, 'Location', 'northeast');
@@ -209,11 +207,9 @@ for i = 1:length(fields)
 end
 hold(ax2, 'off');
 grid(ax2, 'on');
-set(ax2, 'XScale', 'log');
+set(ax2, 'XScale', 'linear');
 xlim(ax2, [50, 40000]);
-set(ax2, 'XTick', log_ticks);
-set(ax2, 'XTickLabel', log_labels);
-xlabel(ax2, 'Decidecade Band Center Frequency [Hz] (Log Scale)');
+xlabel(ax2, 'Decidecade Band Center Frequency [Hz] (Linear Scale)');
 ylabel(ax2, 'SPL [dB re 1 \muPa]');
 title(ax2, 'Decidecade Band Levels (TOB Mean, IEC 61260, second-by-second)');
 legend(ax2, 'Location', 'northeast');
@@ -246,11 +242,9 @@ for i = 1:length(fields)
 end
 hold(ax3, 'off');
 grid(ax3, 'on');
-set(ax3, 'XScale', 'log');
+set(ax3, 'XScale', 'linear');
 xlim(ax3, [50, 40000]);
-set(ax3, 'XTick', log_ticks);
-set(ax3, 'XTickLabel', log_labels);
-xlabel(ax3, 'Decidecade Band Center Frequency [Hz] (Log Scale)');
+xlabel(ax3, 'Decidecade Band Center Frequency [Hz] (Linear Scale)');
 ylabel(ax3, 'Standard Deviation [dB]');
 title(ax3, 'Standard Deviation of Decidecade Band Levels (Temporal Variability)');
 legend(ax3, 'Location', 'northeast');
