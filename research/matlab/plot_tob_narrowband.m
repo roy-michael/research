@@ -9,11 +9,11 @@ script_dir = fileparts(mfilename('fullpath'));
 output_dir = fullfile(script_dir, '..', 'output');
 
 DATASETS = {
-    'D:\RoyStudies\Recordings\Garda_2_26\2_Deep Water\Electric', 'Garda_Electric_DWL';
-    'D:\RoyStudies\Recordings\Garda_2_26\2_Deep Water\Petrol', 'Garda_Petrol_DWL';
-    'D:\RoyStudies\Recordings\AUVExp_1_26\Part1_StraightLine\IcListen6692\leg1_straight_line_2_8m_s_6922_827-837.wav', 'AUV_Leg1_DWL';
-    'D:\RoyStudies\Recordings\Croatia\Ocean Sonics\2407_2_snake', 'Croatia_2407_2_DWL';
-    'D:\RoyStudies\Recordings\Croatia\Ocean Sonics\2307_free', 'Croatia_2307_free_DWL'
+    'C:\Users\Roy\Recordings\Garda_2_26\2_Deep Water\Electric', 'Garda_Electric_DWL';
+    'C:\Users\Roy\Recordings\Garda_2_26\2_Deep Water\Petrol', 'Garda_Petrol_DWL';
+    'C:\Users\Roy\Recordings\AUVExp_1_26\Part1_StraightLine\IcListen6692\leg1_straight_line_2_8m_s_6922_827-837.wav', 'AUV_Leg1_DWL';
+    'C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2407_2_snake', 'Croatia_2407_2_DWL';
+    'C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2307_free', 'Croatia_2307_free_DWL'
 };
 
 % Calibration factor (conversion to micro-Pascals)
@@ -69,6 +69,12 @@ for d = 1:size(DATASETS, 1)
     % Calibration
     y_cal = y_all * calibFactor;
     clear y_all; % Free memory
+    
+    % Limit to first 120 seconds to prevent Out of Memory in pwelch
+    max_samples = 120 * fs;
+    if length(y_cal) > max_samples
+        y_cal = y_cal(1:max_samples);
+    end
     
     % 1. Narrowband Welch PSD (16384 window, 50% overlap, over entire run)
     fprintf('  Computing Narrowband Welch PSD...\n');
@@ -172,11 +178,9 @@ for i = 1:length(fields)
 end
 hold(ax1, 'off');
 grid(ax1, 'on');
-set(ax1, 'XScale', 'log'); 
+set(ax1, 'XScale', 'linear'); 
 xlim(ax1, [50, 40000]);
-set(ax1, 'XTick', log_ticks);
-set(ax1, 'XTickLabel', log_labels);
-xlabel(ax1, 'Frequency [Hz] (Log Scale)');
+xlabel(ax1, 'Frequency [Hz] (Linear Scale)');
 ylabel(ax1, 'PSD [dB re 1 \muPa^2/Hz]');
 title(ax1, 'Narrowband Welch PSD (16384 window, 50% overlap, entire run)');
 legend(ax1, 'Location', 'northeast');
@@ -209,11 +213,9 @@ for i = 1:length(fields)
 end
 hold(ax2, 'off');
 grid(ax2, 'on');
-set(ax2, 'XScale', 'log');
+set(ax2, 'XScale', 'linear');
 xlim(ax2, [50, 40000]);
-set(ax2, 'XTick', log_ticks);
-set(ax2, 'XTickLabel', log_labels);
-xlabel(ax2, 'Decidecade Band Center Frequency [Hz] (Log Scale)');
+xlabel(ax2, 'Decidecade Band Center Frequency [Hz] (Linear Scale)');
 ylabel(ax2, 'SPL [dB re 1 \muPa]');
 title(ax2, 'Decidecade Band Levels (TOB Mean, IEC 61260, second-by-second)');
 legend(ax2, 'Location', 'northeast');
@@ -246,11 +248,9 @@ for i = 1:length(fields)
 end
 hold(ax3, 'off');
 grid(ax3, 'on');
-set(ax3, 'XScale', 'log');
+set(ax3, 'XScale', 'linear');
 xlim(ax3, [50, 40000]);
-set(ax3, 'XTick', log_ticks);
-set(ax3, 'XTickLabel', log_labels);
-xlabel(ax3, 'Decidecade Band Center Frequency [Hz] (Log Scale)');
+xlabel(ax3, 'Decidecade Band Center Frequency [Hz] (Linear Scale)');
 ylabel(ax3, 'Standard Deviation [dB]');
 title(ax3, 'Standard Deviation of Decidecade Band Levels (Temporal Variability)');
 legend(ax3, 'Location', 'northeast');
