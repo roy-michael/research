@@ -10,7 +10,7 @@ import json
 import os
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-output_dir = os.path.join(script_dir, '..', '..', 'output')
+output_dir = os.path.abspath(os.path.join(script_dir, '..', '..', 'output', 'garda'))
 
 json_path = os.path.join(output_dir, 'garda_spectral_data.json')
 html_path = os.path.join(output_dir, 'garda_spectral_dashboard.html')

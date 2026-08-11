@@ -5,7 +5,7 @@
 
 % Resolve paths relative to script location
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output', 'AUV');
 
 % Define all 10 AUV datasets across Hydrophone 6922 (30m) and 6695 (5m)
 DATASETS = {

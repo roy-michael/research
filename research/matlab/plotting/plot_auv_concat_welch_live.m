@@ -6,7 +6,7 @@
 
 % Resolve output directory relative to script folder
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output', 'AUV');
 cache_file = fullfile(output_dir, 'cache_auv_concat_welch.mat');
 
 % Define AUV datasets grouped by Hydrophone

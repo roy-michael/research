@@ -1,0 +1,49 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "shell",
+      "label": "Compile LaTeX (latexmk)",
+      "command": "latexmk",
+      "args": [
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "-pdf",
+        "${file}"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$latex-compiler"
+      ]
+    },
+    {
+      "type": "shell",
+      "label": "Compile LaTeX (pdflatex)",
+      "command": "pdflatex",
+      "args": [
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "${file}"
+      ],
+      "group": "build",
+      "problemMatcher": [
+        "$latex-compiler"
+      ]
+    },
+    {
+      "type": "shell",
+      "label": "Clean LaTeX Aux Files",
+      "command": "latexmk",
+      "args": [
+        "-c",
+        "${file}"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

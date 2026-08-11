@@ -18,7 +18,7 @@ def run_bellhop_simulation():
     bin_path = os.path.join(workspace_dir, "bellhopcuda", "bellhopcxx.exe") # Use CPU version for stability/compatibility
     
     # Output directory for images
-    output_dir = os.path.abspath(os.path.join(script_dir, "..", "..", "output"))
+    output_dir = os.path.abspath(os.path.join(script_dir, "..", "..", "output", "bellhop"))
     os.makedirs(output_dir, exist_ok=True)
     
     # Temporary files in current directory

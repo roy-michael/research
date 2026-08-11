@@ -4,9 +4,9 @@
 % highlighting the main signals and their bandwidths, and exporting the data to JSON.
 % Optimized with smaller NFFT for smoother curves.
 
-% Resolve output directory relative to script folder
+% Resolve output directory robustly
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output', 'croatia');
 
 DATASETS = {
     'D:\RoyStudies\Recordings\Croatia\Ocean Sonics\2307_free', 'Croatia_2307_free';

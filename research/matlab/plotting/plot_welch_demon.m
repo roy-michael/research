@@ -3,9 +3,9 @@
 % and Croatia 2407_1, highlighting the main signals and their bandwidths,
 % and exports the data to JSON. Optimized with smaller NFFT for smoother curves.
 
-% Resolve output directory relative to script folder
+% Resolve output directory robustly
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output');
 
 DATASETS = {
     'D:\RoyStudies\Recordings\Garda_2_26\2_Deep Water\Petrol', 'Petrol (Deep Water)';
@@ -210,7 +210,7 @@ grid(ax_welch, 'on');
 xlim(ax_welch, [0, 4]);
 legend(ax_welch, 'Location', 'northeast');
 hold(ax_welch, 'off');
-saveas(fig_welch, fullfile(output_dir, 'welch_comparison_plot.png'));
+saveas(fig_welch, fullfile(output_dir, 'garda', 'welch_comparison_plot.png'));
 
 % --- Figure 2: DEMON ---
 fig_demon = figure('Name', 'DEMON (Signals Highlighted)', 'Position', [100, 100, 1200, 700], 'Visible', 'off');
@@ -255,7 +255,7 @@ grid(ax_demon, 'on');
 xlim(ax_demon, [0, 4000]);
 legend(ax_demon, 'Location', 'northeast');
 hold(ax_demon, 'off');
-saveas(fig_demon, fullfile(output_dir, 'demon_comparison_plot.png'));
+saveas(fig_demon, fullfile(output_dir, 'garda', 'demon_comparison_plot.png'));
 
 fprintf('All analysis and exports finished successfully!\n');
 close(fig_welch);

@@ -5,7 +5,7 @@
 
 % Resolve paths relative to script location
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output', 'croatia');
 dir_path = 'D:\RoyStudies\Recordings\Croatia\Ocean Sonics\2407_2_snake';
 
 fprintf('Listing WAV files directly in: %s\n', dir_path);

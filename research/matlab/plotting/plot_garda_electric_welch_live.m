@@ -6,7 +6,7 @@
 
 % Resolve output directory relative to script folder
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output', 'garda');
 cache_file = fullfile(output_dir, 'cache_garda_electric_welch.mat');
 
 DIR_PATH = 'D:\RoyStudies\Recordings\Garda_2_26\2_Deep Water\Electric';

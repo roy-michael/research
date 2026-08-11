@@ -6,7 +6,7 @@
 
 % Resolve output directory relative to script folder
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output', 'garda');
 
 DATASETS = {
     'D:\RoyStudies\Recordings\Garda_2_26\2_Deep Water\Electric', 'Garda_Electric_DWL';

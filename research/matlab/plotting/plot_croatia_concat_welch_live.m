@@ -6,7 +6,7 @@
 
 % Resolve output directory relative to script folder
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output', 'croatia');
 cache_file = fullfile(output_dir, 'cache_croatia_concat_welch.mat');
 
 CROATIA_ROOT = 'D:\RoyStudies\Recordings\Croatia';

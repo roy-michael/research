@@ -4,9 +4,9 @@
 % and their bandwidths, and exporting the data to JSON.
 % Uses the optimized smaller NFFT for variance reduction.
 
-% Resolve output directory relative to script folder
+% Resolve output directory robustly
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output', 'garda');
 
 DATASETS = {
     'D:\RoyStudies\Recordings\Garda_2_26\2_Deep Water\Petrol', 'Petrol_Deep_Water';

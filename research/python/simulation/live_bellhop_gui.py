@@ -26,7 +26,7 @@ class LiveBellhopSimulator:
         if not os.path.exists(self.bin_path):
             self.bin_path = "bellhop.exe"
             
-        self.output_dir = os.path.abspath(os.path.join(self.script_dir, "..", "..", "output"))
+        self.output_dir = os.path.abspath(os.path.join(self.script_dir, "..", "..", "output", "bellhop"))
         os.makedirs(self.output_dir, exist_ok=True)
         
         self.env_file = os.path.join(self.script_dir, "live_sim.env")

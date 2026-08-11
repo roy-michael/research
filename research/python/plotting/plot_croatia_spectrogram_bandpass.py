@@ -18,7 +18,7 @@ def butter_bandpass(lowcut, highcut, fs, order=5):
     sos = butter(order, [low, high], btype='band', output='sos')
     return sos
 
-def butter_bandpass_filter(data, lowcut, highcut, fs, order=5):
+def butter_bandpass_filter(data, lowcut, highcut, fs, order=9):
     sos = butter_bandpass(lowcut, highcut, fs, order=order)
     y = sosfiltfilt(sos, data)
     return y
@@ -64,7 +64,7 @@ def process_dataset(dataset_dir, dataset_name, output_dir):
                 data = data.mean(axis=1)
                 
             # Apply bandpass filter
-            filtered = butter_bandpass_filter(data, 400.0, 1000.0, fs, order=5)
+            filtered = butter_bandpass_filter(data, 400.0, 1200.0, fs, order=5)
             
             # Downsample by 32 (slicing since the signal is filtered below Nyquist for new fs = fs/32 = 4000 Hz)
             downsampled = filtered[::32]
@@ -100,7 +100,7 @@ def process_dataset(dataset_dir, dataset_name, output_dir):
     plt.title(f"Spectrogram of Croatia {dataset_name}\nBandpass Filtered: 400 - 1000 Hz", fontsize=14, fontweight='bold', pad=15)
     plt.xlabel("Time [seconds]", fontsize=12)
     plt.ylabel("Frequency [Hz]", fontsize=12)
-    plt.ylim(400, 1000)  # Focus only on the bandpassed region
+    plt.ylim(400, 1500)  # Focus only on the bandpassed region
     
     # Add a nice colorbar with label
     cbar = plt.colorbar(im, label="Power Spectral Density (dB/Hz)")
@@ -117,7 +117,8 @@ def process_dataset(dataset_dir, dataset_name, output_dir):
 
 def main():
     base_dir = r"D:\RoyStudies\Recordings\Croatia\Ocean Sonics"
-    output_dir = r"d:\dev\research\research\output"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = os.path.abspath(os.path.join(script_dir, "..", "..", "output", "croatia"))
     
     datasets = ['2307_free', '2407_1_600m', '2407_2_snake', '2507_1_1k', '2507_2_joint']
     

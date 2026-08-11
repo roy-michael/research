@@ -5,7 +5,7 @@
 
 % Resolve paths relative to script location
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output', 'AUV');
 
 FILE_PATH = 'D:\RoyStudies\Recordings\AUVExp_1_26\Part1_StraightLine\IcListen6692\leg1_straight_line_2_8m_s_6922_827-837.wav';
 calibFactor = 1e6; % Calibration factor (conversion to micro-Pascals)

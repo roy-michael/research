@@ -5,7 +5,7 @@
 
 % Resolve output directory relative to script folder
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output', 'spectrograms');
 
 DATASETS = {
     % Hydrophone 6922 (30m)

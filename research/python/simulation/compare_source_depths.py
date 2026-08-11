@@ -134,7 +134,7 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     workspace_dir = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
     bin_path = os.path.join(workspace_dir, "bellhopcuda", "bellhopcxx.exe")
-    output_dir = os.path.abspath(os.path.join(script_dir, "..", "..", "output"))
+    output_dir = os.path.abspath(os.path.join(script_dir, "..", "..", "output", "bellhop"))
     os.makedirs(output_dir, exist_ok=True)
     
     print("Running simulation for SD = 0.1m...")

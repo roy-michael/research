@@ -5,7 +5,7 @@
 
 % Resolve paths relative to script location
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output', 'garda');
 
 DIR_PATH = 'D:\RoyStudies\Recordings\Garda_2_26\2_Deep Water\Electric';
 calibFactor = 1e6; % Calibration factor (conversion to micro-Pascals)

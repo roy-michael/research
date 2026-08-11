@@ -3,9 +3,9 @@
 % datasets and the Itamar AUV straight-line propulsion trials.
 % Optimizes and highlights main signals and bandwidths, saving JSON and static plots.
 
-% Resolve output directory relative to script folder
+% Resolve output directory robustly
 script_dir = fileparts(mfilename('fullpath'));
-output_dir = fullfile(script_dir, '..', 'output');
+output_dir = fullfile(script_dir, '..', '..', 'output', 'garda');
 
 DATASETS = {
     'D:\RoyStudies\Recordings\Garda_2_26\2_Deep Water\Electric', 'Garda_Electric_Deep';
