@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doubly Spread Channel Simulator</title>
+    <meta name="description" content="Graphical Simulator for Underwater Signal Processing">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <h1>Doubly Spread Channel Simulator</h1>
+            <p>Underwater Acoustic Signal Processing</p>
+        </header>
+
+        <main>
+            <div class="sidebar glass-panel">
+                <h2>Parameters</h2>
+                
+                <div class="control-group" id="srcDepthGroup">
+                    <label for="depthSrc">Source Depth (<i>H</i><sub>src</sub>) [m]</label>
+                    <input type="range" id="depthSrc" min="0" max="500" step="10" value="0">
+                    <span id="depthSrc-val">0</span>
+                </div>
+
+                <div class="control-group">
+                    <label for="freq0">Carrier Freq (<i>f</i><sub>0</sub>) [Hz]</label>
+                    <input type="range" id="freq0" min="10" max="500" value="100">
+                    <span id="freq0-val">100</span>
+                </div>
+
+                <div class="control-group">
+                    <label for="heaveAmp">Heave Amplitude (<i>A</i><sub>w</sub>) [m]</label>
+                    <input type="range" id="heaveAmp" min="0" max="5" step="0.1" value="2">
+                    <span id="heaveAmp-val">2.0</span>
+                </div>
+
+                <div class="control-group">
+                    <label for="heaveFreq">Wave Freq (<i>f</i><sub>w</sub>) [Hz]</label>
+                    <input type="range" id="heaveFreq" min="0.1" max="10.0" step="0.1" value="1.0">
+                    <span id="heaveFreq-val">1.0</span>
+                </div>
+
+                <div class="control-group">
+                    <label for="range">Range (<i>R</i>) [m]</label>
+                    <input type="range" id="range" min="100" max="5000" step="100" value="2000">
+                    <span id="range-val">2000</span>
+                </div>
+
+                <div class="control-group">
+                    <label for="depthRec">Receiver Depth (<i>H</i><sub>rec</sub>) [m]</label>
+                    <input type="range" id="depthRec" min="10" max="500" step="10" value="100">
+                    <span id="depthRec-val">100</span>
+                </div>
+                
+                <div class="control-group">
+                    <label for="roughness">Roughness (<i>R</i><sub>0</sub>)</label>
+                    <input type="range" id="roughness" min="0" max="1" step="0.05" value="0.8">
+                    <span id="roughness-val">0.8</span>
+                </div>
+            </div>
+
+            <div class="visualization-area">
+                <div class="chart-container glass-panel">
+                    <h2>Transmitted Signal (<i>p</i><sub>tx</sub>)</h2>
+                    <canvas id="txChart"></canvas>
+                </div>
+                
+                <div class="chart-container glass-panel">
+                    <h2>Received Signal (<i>p</i><sub>rx</sub>)</h2>
+                    <canvas id="rxChart"></canvas>
+                </div>
+                
+                <div class="controls-row" style="text-align: right; margin-bottom: 1rem;">
+                    <button id="resetZoomBtn" class="btn-primary">Reset Zoom</button>
+                </div>
+
+                <div class="stats-panel glass-panel">
+                    <h2>Channel Metrics</h2>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <span class="metric-label">Grazing Angle (<i>&theta;</i><sub>g</sub>)</span>
+                            <span class="metric-value" id="metric-theta">0.0°</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-label">Modulation Index (<i>&beta;</i>)</span>
+                            <span class="metric-value" id="metric-beta">0.0</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-label">Doppler Spread (&Delta;<i>f</i>)</span>
+                            <span class="metric-value" id="metric-doppler">0.0 Hz</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

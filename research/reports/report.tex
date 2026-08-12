@@ -2,6 +2,7 @@
 \usepackage{tikz}
 \usepackage{amsmath}
 \usepackage{graphicx}
+\usepackage[colorlinks=true, citecolor=blue, linkcolor=blue, urlcolor=blue]{hyperref}
 \usetikzlibrary{decorations.pathmorphing, arrows.meta, positioning, calc, fit, backgrounds}
 
 \begin{document}
@@ -13,9 +14,13 @@
 \maketitle
 
 \section{Theoretical Framework}
+This section establishes the mathematical and physical foundations required to understand how ocean environments distort acoustic signals. By defining the underlying mechanisms of signal spreading, we create a baseline for analyzing specific source geometries.
+
 The theoretical framework defines a \textbf{Doubly Spread Channel} \cite{stojanovic1996recent, preisig2007acoustic} as one driven by two coupled mechanisms: \textbf{Source Kinematics (Heave)} and \textbf{Dynamic Boundary Interaction (Micro-Multipath)}.
 
 \section{Source on the surface}
+A surface vessel represents the most extreme case of acoustic smearing. This section analyzes this geometry to demonstrate the worst-case scenario, where the acoustic source is physically coupled to the dynamic ocean boundary, resulting in maximal delay and Doppler spread.
+
 \subsection{Schematic Diagram}
 \begin{tikzpicture}[scale=1.2, >=Stealth]
 
@@ -54,6 +59,8 @@ The theoretical framework defines a \textbf{Doubly Spread Channel} \cite{stojano
 \subsection{Physical \& Mathematical Breakdown}
 
 \subsubsection{The Grazing Angle}
+This subsection calculates the geometry of the reflection to prove that for a surface source and distant receiver, the acoustic path reflects at an extremely shallow angle, forcing the direct and surface-scattered paths to overlap almost perfectly.
+
 The grazing angle $\theta_g$ is the angle between the direct acoustic path and the horizontal at the point of reflection. It is given by:
 \begin{equation}
 \theta_g = \arctan \left( \frac{H_{rec} - H_{src}}{R} \right)
@@ -61,6 +68,8 @@ The grazing angle $\theta_g$ is the angle between the direct acoustic path and t
 Because the source is on the surface ($H_{src} \approx 0$) and the range is long ($R \gg H_{rec}$), the grazing angle $\theta_g$ approaches $0^\circ$.
 For example, in a setup where the receiver is at 20m depth and the source is 1km away on the surface, $\theta_g \approx 1.15^\circ$.
 \subsubsection{The Transmitted Signal: Source Kinematics}
+This subsection models the physical motion of the vessel to prove that its vertical heave inherently transforms the emitted acoustic wave into a Phase/Frequency Modulated (FM) signal before it even propagates into the channel.
+
 A theoretical underwater acoustic source emits a monochromatic pressure wave $p(t)$ at a fundamental frequency $f_0$:
 \begin{align}
 p(t) &= P_0 \cos(2\pi f_0 t)
@@ -78,21 +87,16 @@ f_i(t) &= \frac{1}{2\pi} \frac{d\Phi}{dt} = f_0 + \Delta f \cos(2\pi f_w t) \\
 \Delta f &= \beta f_w = \frac{2\pi f_0 f_w}{c} A_w \cos\theta_g
 \end{align}
 
-\paragraph{Physical Interpretation of $\beta$:}
-The modulation index $\beta = 2\pi (A_w / \lambda) \cos\theta_g$ represents the peak phase shift in radians, governed by two physical balances:
-\begin{itemize}
-    \item \textbf{Scale Ratio ($A_w / \lambda$):} Compares the physical ship heave amplitude ($A_w$) to the acoustic wavelength ($\lambda$). At high frequencies (short $\lambda$), yielding a large $\beta$ and severe frequency smearing. At low frequencies (long $\lambda$), resulting in a small $\beta$ and minimal smearing.
-    \item \textbf{Geometric Projection ($\cos\theta_g$):} Represents the projection of the vertical heave along the acoustic ray path. For shallow grazing angle ($\theta_g \to 0^\circ$), $\cos\theta_g \to 1$, the vertical motion projects fully along the ray path. For a receiver directly above the source ($\theta_g \to 90^\circ$), $\cos\theta_g \to 0$, the vertical motion is perpendicular to the ray direction, resulting in zero path-length modulation and no frequency smearing.
-\end{itemize}
-
 \subsubsection*{Spectral Expansion (The Bessel Comb)}
+This subsection transitions the time-domain phase modulation into the frequency domain to mathematically prove that the vessel's physical heave expands the single tonal into an infinite series of frequency sidebands.
+
 \cite{carlson2001} \\
 To analyze the frequency spectrum of the modulated signal, we transition to the frequency domain using the \textbf{Jacobi-Anger expansion}. 
 
-First, we express the time-domain pressure wave $p_{tx}(t)$ as the real part of a complex analytic signal:
+The time-domain pressure wave $p_{tx}(t)$ as the real part of a complex analytic signal:
 \[ p_{tx}(t) = P_0 \text{Re} \left\{ e^{i 2\pi f_0 t} \cdot e^{i \beta \sin(2\pi f_w t)} \right\} \]
 
-Next, we apply the Jacobi-Anger identity, which expands the exponential of a sine function into an infinite series of Bessel-weighted harmonics:
+After applying the Jacobi-Anger identity, which expands the exponential of a sine function into an infinite series of Bessel-weighted harmonics:
 \[ e^{i \beta \sin(\phi)} = \sum_{n=-\infty}^{\infty} J_n(\beta) e^{i n \phi} \]
 where $\phi = 2\pi f_w t$. Substituting this expansion back into the pressure wave equation:
 \[ p_{tx}(t) = P_0 \text{Re} \left\{ \sum_{n=-\infty}^{\infty} J_n(\beta) e^{i 2\pi (f_0 + n f_w) t} \right\} \]
@@ -104,7 +108,9 @@ p_{tx}(t) = P_0 \sum_{n=-\infty}^{\infty} J_n(\beta) \cos\left( 2\pi (f_0 + n f_
 
 Based on \textbf{Carson's Rule}, the physical coupling of the vessel to the ocean surface theoretically expands the frequency spectrum to a bandwidth of $BW \approx 2 f_w (\beta + 1)$.
 
-\subsubsection{Channel Interaction: Dynamic Boundary \& Multipath}
+\subsubsection{Channel Interaction with Dynamic Boundary \& Multipath}
+This subsection models the reflection off the ocean surface to show how the moving waves act as a dynamic scatterer, imposing a time-varying phase shift (Doppler) that constantly changes the reflected path.
+
 For a distant, submerged receiver, the channel impulse response $h(\tau, t)$ consists of a direct path and a surface-reflected path.
 
 Because the source is at the surface ($H_{src} \approx 0$) and the range is long ($R \gg H_{rec}$), the geometric path length difference between the direct ray and the surface ray approaches zero ($\Delta R \to 0$), and the time delay $\Delta \tau$ between them is microscopically small ($\Delta \tau \approx 0$).
@@ -119,9 +125,10 @@ p_{rx}(t) &= \frac{1}{R_{dir}} p_{tx}(t - \tau_{dir}) + \frac{V(t)}{R_{surf}} p_
 \intertext{Thus, the scattered path is theoretically defined as:}
 V(t) &= -R_0 \exp\left( i \frac{4\pi f_0}{c} h_s(t) \sin\theta_g \right)
 \end{align}
-Where $R_0$ is the amplitude loss due to rough-surface scattering (energy scattered out of the specular direction).
+This formulation is the standard Kirchhoff approximation for rough surface scattering. The negative sign represents the $180^\circ$ phase inversion at the pressure-release air-water boundary. $R_0$ is the amplitude loss due to rough-surface scattering (energy lost from the specular direction). The exponential term represents the additional phase shift (Doppler) caused by the extra geometric distance the wave must travel as the surface moves vertically.
 
 \subsubsection{The Smeared Received Signal}
+This subsection combines the modulated source signal and the time-varying channel interaction into a single final equation, proving mathematically why the received signal suffers from continuous, multiplicative amplitude fading and phase distortion.
 
 Because $\tau_{dir} \approx \tau_{surf}$ and $R_{dir} \approx R_{surf}$, we can factor the received pressure field into a single equation that defines the phenomenon.
 
@@ -143,6 +150,7 @@ This final mathematical expression governs exactly why the signal appears smeare
 The ``smeared signal'' of a surface vessel is theoretically defined as an inherently frequency-modulated tonal that is continuously subjected to multiplicative, time-varying amplitude fading and secondary phase scattering by a dynamic boundary. It cannot be mathematically reduced to a stationary sine wave.
 
 \subsubsection{Connection to the Doubly Spread Channel}
+This subsection links the derived geometry and physics directly to standard acoustic channel theory, confirming that this specific environment strictly satisfies the formal criteria for both Delay and Doppler spreading.
 
 Yes, this entire framework is the textbook definition of a \textbf{doubly spread acoustic channel}.
 
@@ -158,6 +166,8 @@ In this specific geometry:
 Because the acoustic source is physically bound to the dynamic interface, the signal is instantaneously subjected to both spreading mechanisms simultaneously before it even propagates across the range $R$.
 
 \section{Source Underwater}
+To highlight the impact of surface coupling, this section contrasts the surface vessel with a deeply submerged source. By isolating the source from the dynamic boundary, we can demonstrate how physical decoupling dramatically stabilizes the acoustic signal.
+
 When inspecting an acoustic source deep in the water column, the acoustic physics changes because the source is decoupled from the ocean's wave spectrum.
 which results in a more distinct separation of geometric paths and less frequency smearing at the receiver.
 
@@ -205,6 +215,7 @@ When a vessel is submerged ($H_{src} \gg 0$), it is physically decoupled from th
 This decoupling mathematically breaks both the kinematic frequency modulation (FM) and the multiplicative micro-multipath fading.
 
 \subsubsection{Elimination of Source Kinematics}
+This subsection proves mathematically that placing the source below the wave base eliminates the physical heave, returning the transmitted signal to a pure, unmodulated tone.
 
 An underwater source operates below the wave base, meaning it is not subjected to the physical heave of the ocean swell.
 
@@ -222,6 +233,7 @@ p_{tx}(t) = P_0 \cos(2\pi f_0 t)
 meaning the source is emitting a theoretically perfect, infinitely narrow tonal.
 
 \subsubsection{Resolution of Macro-Multipath}
+This subsection shows how the depth of the source geometrically separates the direct path from the surface reflection, creating a macroscopic time delay that breaks the multiplicative interference.
 
 For an underwater vessel, $H_{src}$ is a large, non-zero value. 
 Because of this depth, the geometry creates a significant difference in path lengths:
@@ -235,6 +247,7 @@ Because the signals no longer arrive at the same time, they can no longer interf
 The superposition equation is the sum of two separate, additive events in time.
 
 \subsubsection{The Decoupled Received Signal}
+This subsection presents the final received signal equation for an underwater source, proving that the primary acoustic signal arrives completely pristine and is structurally decoupled from surface dynamics.
 
 Substituting our pure transmitted signal ($p_{tx}$) and our macro-delayed surface reflection into the receiver equation yields the theoretical received signal for an underwater vessel:
 \begin{equation}
@@ -253,8 +266,9 @@ The geometry guarantees a pure, stable direct path that is mathematically indepe
 
 \clearpage
 \section{Flow Diagram}
+Transitioning from theoretical physics to practical application, this section outlines the signal processing architecture. The flow diagram visualizes the algorithm designed to process, analyze, and mitigate the acoustic smearing effects established in the previous sections.
 
-\resizebox{\textwidth}{!}{\begin{tikzpicture}[
+\resizebox{!}{0.85\textheight}{\begin{tikzpicture}[
     >=Stealth,
     node distance=1.2cm and 1.5cm,
     font=\sffamily,

@@ -1,17 +1,18 @@
 function train_vessel_classifier()
+    rec_path = get_recordings_path();
     datasets = {
-        struct('name', 'Croatia 2307 Free', 'path', 'D:\RoyStudies\Recordings\Croatia\Ocean Sonics\merged\merged_2307_free.wav', 'isFile', true, 'label', 0), ... % 0 = Underwater
-        struct('name', 'Croatia 2407_1 600m', 'path', 'D:\RoyStudies\Recordings\Croatia\Ocean Sonics\merged\merged_2407_1_600m.wav', 'isFile', true, 'label', 0), ...
-        struct('name', 'Croatia 2407_2 Snake', 'path', 'D:\RoyStudies\Recordings\Croatia\Ocean Sonics\merged\merged_2407_2_snake.wav', 'isFile', true, 'label', 0), ...
-        struct('name', 'Croatia 2507_1 1k', 'path', 'D:\RoyStudies\Recordings\Croatia\Ocean Sonics\merged\merged_2507_1_1k.wav', 'isFile', true, 'label', 0), ...
-        struct('name', 'Croatia 2507_2 Joint', 'path', 'D:\RoyStudies\Recordings\Croatia\Ocean Sonics\merged\merged_2507_2_joint.wav', 'isFile', true, 'label', 0), ...
-        struct('name', 'Garda Shallow Electric', 'path', 'D:\RoyStudies\Recordings\Garda_2_26\1_Shallow Water\Electric', 'isFile', false, 'label', 1), ... % 1 = Surface
-        struct('name', 'Garda Shallow Petrol', 'path', 'D:\RoyStudies\Recordings\Garda_2_26\1_Shallow Water\Petrol', 'isFile', false, 'label', 1), ...
-        struct('name', 'Garda Deep Electric', 'path', 'D:\RoyStudies\Recordings\Garda_2_26\2_Deep Water\Electric', 'isFile', false, 'label', 1), ...
-        struct('name', 'Garda Deep Petrol', 'path', 'D:\RoyStudies\Recordings\Garda_2_26\2_Deep Water\Petrol', 'isFile', false, 'label', 1)
+        struct('name', 'Croatia 2307 Free', 'path', fullfile(rec_path, 'Croatia\Ocean Sonics\2307_free'), 'isFile', false, 'label', 0), ... % 0 = Underwater
+        struct('name', 'Croatia 2407_1 600m', 'path', fullfile(rec_path, 'Croatia\Ocean Sonics\2407_1_600m'), 'isFile', false, 'label', 0), ...
+        struct('name', 'Croatia 2407_2 Snake', 'path', fullfile(rec_path, 'Croatia\Ocean Sonics\2407_2_snake'), 'isFile', false, 'label', 0), ...
+        struct('name', 'Croatia 2507_1 1k', 'path', fullfile(rec_path, 'Croatia\Ocean Sonics\2507_1_1k'), 'isFile', false, 'label', 0), ...
+        struct('name', 'Croatia 2507_2 Joint', 'path', fullfile(rec_path, 'Croatia\Ocean Sonics\2507_2_joint'), 'isFile', false, 'label', 0), ...
+        struct('name', 'Garda Shallow Electric', 'path', fullfile(rec_path, 'Garda_2_26\1_Shallow Water\Electric'), 'isFile', false, 'label', 1), ... % 1 = Surface
+        struct('name', 'Garda Shallow Petrol', 'path', fullfile(rec_path, 'Garda_2_26\1_Shallow Water\Petrol'), 'isFile', false, 'label', 1), ...
+        struct('name', 'Garda Deep Electric', 'path', fullfile(rec_path, 'Garda_2_26\2_Deep Water\Electric'), 'isFile', false, 'label', 1), ...
+        struct('name', 'Garda Deep Petrol', 'path', fullfile(rec_path, 'Garda_2_26\2_Deep Water\Petrol'), 'isFile', false, 'label', 1)
     };
     
-    artifact_dir = 'C:\Users\gorke\.gemini\antigravity-ide\brain\a09a1b5f-d3a3-40cf-b59b-54d19ca16f61';
+    artifact_dir = 'C:\Users\Roy\.gemini\antigravity-ide\brain\80253fc1-2f58-4f2e-ba60-1b773092b2dc';
     if ~exist(artifact_dir, 'dir')
         mkdir(artifact_dir);
     end
@@ -115,6 +116,12 @@ function train_vessel_classifier()
     acc_rf = zeros(5, 1);
     conf_rf_total = zeros(2, 2);
     
+    acc_svm = zeros(5, 1);
+    conf_svm_total = zeros(2, 2);
+    
+    acc_nn = zeros(5, 1);
+    conf_nn_total = zeros(2, 2);
+    
     for fold = 1:5
         test_idx = indices((fold-1)*fold_sizes + 1 : fold*fold_sizes);
         train_mask = true(N, 1);
@@ -165,6 +172,28 @@ function train_vessel_classifier()
             c = double(pred_rf(i)) + 1;
             conf_rf_total(r, c) = conf_rf_total(r, c) + 1;
         end
+        
+        % MATLAB Toolbox: Support Vector Machine (RBF Kernel)
+        svm_fold = fitcsvm(X_train, y_train, 'KernelFunction', 'rbf', 'Standardize', true);
+        pred_svm = predict(svm_fold, X_test);
+        acc_svm(fold) = sum(pred_svm == y_test) / length(y_test);
+        
+        for i = 1:length(y_test)
+            r = y_test(i) + 1;
+            c = double(pred_svm(i)) + 1;
+            conf_svm_total(r, c) = conf_svm_total(r, c) + 1;
+        end
+        
+        % MATLAB Toolbox: Neural Network (MLP)
+        nn_fold = fitcnet(X_train, y_train, 'LayerSizes', [10, 5], 'Standardize', true);
+        pred_nn = predict(nn_fold, X_test);
+        acc_nn(fold) = sum(pred_nn == y_test) / length(y_test);
+        
+        for i = 1:length(y_test)
+            r = y_test(i) + 1;
+            c = double(pred_nn(i)) + 1;
+            conf_nn_total(r, c) = conf_nn_total(r, c) + 1;
+        end
     end
     
     fprintf('\n--- KNN Performance Summary ---\n');
@@ -196,6 +225,20 @@ function train_vessel_classifier()
     recall_rf = tp_rf / (tp_rf + fn_rf + eps);
     f1_rf = 2 * (precision_rf * recall_rf) / (precision_rf + recall_rf + eps);
     fprintf('  F1-Score: %.2f%%\n', f1_rf * 100);
+    
+    fprintf('\n--- SVM (RBF Kernel) Performance Summary ---\n');
+    fprintf('SVM 5-Fold CV Accuracy: %.2f%%\n', mean(acc_svm) * 100);
+    tp_svm = conf_svm_total(2, 2); fp_svm = conf_svm_total(1, 2); fn_svm = conf_svm_total(2, 1);
+    precision_svm = tp_svm / (tp_svm + fp_svm + eps); recall_svm = tp_svm / (tp_svm + fn_svm + eps);
+    f1_svm = 2 * (precision_svm * recall_svm) / (precision_svm + recall_svm + eps);
+    fprintf('  F1-Score: %.2f%%\n', f1_svm * 100);
+    
+    fprintf('\n--- Neural Network (MLP) Performance Summary ---\n');
+    fprintf('NN 5-Fold CV Accuracy: %.2f%%\n', mean(acc_nn) * 100);
+    tp_nn = conf_nn_total(2, 2); fp_nn = conf_nn_total(1, 2); fn_nn = conf_nn_total(2, 1);
+    precision_nn = tp_nn / (tp_nn + fp_nn + eps); recall_nn = tp_nn / (tp_nn + fn_nn + eps);
+    f1_nn = 2 * (precision_nn * recall_nn) / (precision_nn + recall_nn + eps);
+    fprintf('  F1-Score: %.2f%%\n', f1_nn * 100);
     
     % Compute Feature Importance using Fisher Score
     imp = zeros(size(X, 2), 1);
@@ -285,8 +328,10 @@ function train_vessel_classifier()
     % Train final models
     [w_lr, mu_lr, sigma_lr] = train_logistic_regression(X, y, 0.1);
     forest_model = fit_forest(X, y, 15, 3);
+    svm_model = fitcsvm(X, y, 'KernelFunction', 'rbf', 'Standardize', true);
+    nn_model = fitcnet(X, y, 'LayerSizes', [10, 5], 'Standardize', true);
     
-    save(fullfile(artifact_dir, 'vessel_classifier_model.mat'), 'X', 'y', 'w_lr', 'mu_lr', 'sigma_lr', 'forest_model');
+    save(fullfile(artifact_dir, 'vessel_classifier_model.mat'), 'X', 'y', 'w_lr', 'mu_lr', 'sigma_lr', 'forest_model', 'svm_model', 'nn_model');
     fprintf('\nSaved Feature Importance, LogReg/KNN/RF Boundary plots, and model data.\n');
 end
 

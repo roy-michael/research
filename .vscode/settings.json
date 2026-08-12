@@ -3,15 +3,15 @@
   "latex-workshop.latex.autoBuild.run": "onSave",
   "latex-workshop.latex.recipes": [
     {
-      "name": "latexmk",
-      "tools": [
-        "latexmk"
-      ]
-    },
-    {
       "name": "pdflatex",
       "tools": [
         "pdflatex"
+      ]
+    },
+    {
+      "name": "latexmk",
+      "tools": [
+        "latexmk"
       ]
     }
   ],
@@ -43,7 +43,7 @@
   "latex-workshop.latex.clean.subFolder.enabled": true,
   "latex-workshop.latex.autoClean.run": "onFailed",
   "latex-workshop.formatting.latex": "latexindent",
-  "latex-workshop.formatting.latexindent.path": "C:\\Users\\gorke\\AppData\\Local\\Programs\\MiKTeX\\miktex\\bin\\x64\\latexindent.exe",
+  "latex-workshop.formatting.latexindent.path": "latexindent",
   "latex-workshop.formatting.latexindent.args": [
     "-s",
     "-c",

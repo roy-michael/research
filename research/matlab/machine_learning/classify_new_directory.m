@@ -1,6 +1,6 @@
 function classify_new_directory()
-    test_dir = 'D:\RoyStudies\Recordings\DepartmentalCruise-2025-06-12\icListen\wav';
-    artifact_dir = 'C:\Users\gorke\.gemini\antigravity-ide\brain\a09a1b5f-d3a3-40cf-b59b-54d19ca16f61';
+    test_dir = 'C:\Users\Roy\Recordings\Croatia\Ocean Sonics';
+    artifact_dir = 'C:\Users\Roy\.gemini\antigravity-ide\brain\80253fc1-2f58-4f2e-ba60-1b773092b2dc';
     
     block_len_sec = 30;
     
@@ -21,7 +21,7 @@ function classify_new_directory()
         error('Test directory not found: %s', test_dir);
     end
     
-    test_files = dir(fullfile(test_dir, '*.wav'));
+    test_files = dir(fullfile(test_dir, '**', '*.wav'));
     if isempty(test_files)
         error('No WAV files found in: %s', test_dir);
     end
@@ -136,7 +136,7 @@ function classify_new_directory()
     t1 = scatter(X_test_top2(pred_test==1, 1), X_test_top2(pred_test==1, 2), 80, 'filled', 'd', 'MarkerFaceColor', '#0072BD', 'MarkerEdgeColor', 'w', 'LineWidth', 1, 'DisplayName', 'New: Classified Surface');
     t2 = scatter(X_test_top2(pred_test==2, 1), X_test_top2(pred_test==2, 2), 80, 'filled', 's', 'MarkerFaceColor', '#EDB120', 'MarkerEdgeColor', 'w', 'LineWidth', 1, 'DisplayName', 'New: Classified Ambient');
     
-    title(sprintf('New Dataset Classification Boundary & Predictions (3-Class)\nDirectory: %s', 'DepartmentalCruise-2025-06-12'), 'FontSize', 11);
+    title(sprintf('New Dataset Classification Boundary & Predictions (3-Class)\nDirectory: %s', 'Croatia - Ocean Sonics'), 'FontSize', 11);
     xlabel(sprintf('%s (Normalized)', feature_names{feat1_idx}));
     ylabel(sprintf('%s (Normalized)', feature_names{feat2_idx}));
     legend([h1, h2, h3, t0, t1, t2], 'Location', 'best');

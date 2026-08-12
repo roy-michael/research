@@ -1,0 +1,134 @@
+ BELLHOP/BELLHOP3D
+
+ BELLHOP- Live BELLHOP Simulation (A)                                            
+ frequency =   500.0     Hz
+
+ Dummy parameter NMedia =            1
+
+     Spline approximation to SSP
+     Attenuation units: dB/mkHz
+     VACUUM
+
+ Depth =      50.00 m
+
+ Sound speed profile:
+   z (m)     alphaR (m/s)   betaR  rho (g/cm^3)  alphaI     betaI
+
+      0.00      1521.45      0.00     1.00       0.0000    0.0000
+     10.00      1517.09      0.00     1.00       0.0000    0.0000
+     20.00      1512.54      0.00     1.00       0.0000    0.0000
+     30.00      1507.77      0.00     1.00       0.0000    0.0000
+     40.00      1502.80      0.00     1.00       0.0000    0.0000
+     50.00      1497.60      0.00     1.00       0.0000    0.0000
+
+                                 ( RMS roughness =   0.00     )
+     ACOUSTO-ELASTIC half-space
+     50.00      1600.00      0.00     1.50       0.2000    0.0000
+
+ __________________________________________________________________________
+
+ Number of Source   depths, Sz =            1
+ Source   depths, Sz (m)
+   1.76000    
+
+
+ __________________________________________________________________________
+
+ Number of Receiver depths, Rz =            1
+ Receiver depths, Rz (m)
+   25.0000    
+
+
+ __________________________________________________________________________
+
+ Number of Receiver ranges, Rr =            1
+ Receiver ranges, Rr (km)
+  0.600000    
+
+
+ Arrivals calculation, ASCII  file output
+ Geometric hat beams in Cartesian coordinates
+ Point source (cylindrical coordinates)
+ Rectilinear receiver grid: Receivers at Rr( : ) x Rz( : )
+ __________________________________________________________________________
+
+ Number of beams in elevation   =          801
+ Beam take-off angles (degrees)
+  -80.0000      -79.8000      -79.6000      -79.4000      -79.2000    
+  -79.0000      -78.8000      -78.6000      -78.4000      -78.2000    
+          ... 
+   80.0000    
+
+ __________________________________________________________________________
+
+
+ Step length,       deltas =   0.000     m
+
+ Maximum ray depth, Box%z  =   60.00     m
+ Maximum ray range, Box%r  =   1.200    km
+ No beam shift in effect
+
+
+ Step length,       deltas =   5.000     m (automatically selected)
+
+ ( Maximum # of arrivals =     20000000 )
+
+Tracing beam       1    -80.00
+
+ Geometric hat beams                     
+ halfwidth  =    277.34139450172796     
+ epsilonOpt =  (  0.0000000000000000     ,  120822903.15631451     )
+ EpsMult    =    1.0000000000000000     
+
+Tracing beam      17    -76.80
+Tracing beam      33    -73.60
+Tracing beam      49    -70.40
+Tracing beam      65    -67.20
+Tracing beam      81    -64.00
+Tracing beam      97    -60.80
+Tracing beam     113    -57.60
+Tracing beam     129    -54.40
+Tracing beam     145    -51.20
+Tracing beam     161    -48.00
+Tracing beam     177    -44.80
+Tracing beam     193    -41.60
+Tracing beam     209    -38.40
+Tracing beam     225    -35.20
+Tracing beam     241    -32.00
+Tracing beam     257    -28.80
+Tracing beam     273    -25.60
+Tracing beam     289    -22.40
+Tracing beam     305    -19.20
+Tracing beam     321    -16.00
+Tracing beam     337    -12.80
+Tracing beam     353     -9.60
+Tracing beam     369     -6.40
+Tracing beam     385     -3.20
+Tracing beam     401      0.00
+Tracing beam     417      3.20
+Tracing beam     433      6.40
+Tracing beam     449      9.60
+Tracing beam     465     12.80
+Tracing beam     481     16.00
+Tracing beam     497     19.20
+Tracing beam     513     22.40
+Tracing beam     529     25.60
+Tracing beam     545     28.80
+Tracing beam     561     32.00
+Tracing beam     577     35.20
+Tracing beam     593     38.40
+Tracing beam     609     41.60
+Tracing beam     625     44.80
+Tracing beam     641     48.00
+Tracing beam     657     51.20
+Tracing beam     673     54.40
+Tracing beam     689     57.60
+Tracing beam     705     60.80
+Tracing beam     721     64.00
+Tracing beam     737     67.20
+Tracing beam     753     70.40
+Tracing beam     769     73.60
+Tracing beam     785     76.80
+Tracing beam     801     80.00
+
+ CPU Time =       0.312E-01s
