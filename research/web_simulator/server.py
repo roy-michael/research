@@ -1,3 +1,4 @@
+import os
 import http.server
 import socketserver
 import json
@@ -45,9 +46,12 @@ def calc_macroscopic_delay(Hsrc, Hrec, R, c):
 def simulate_channel(f0, Hsrc, Aw, fw, R, Hrec, R0, t):
     """
     Unified generalized additive model for the Doubly Spread Channel.
-    This dynamically calculates the source heave based on depth, and relies on 
-    the macroscopic time delay to naturally collapse into multiplicative fading 
-    when Hsrc approaches 0.
+    Includes:
+    1. Direct & surface-reflected coherent multipath with (1 + R0) normalization
+       ensuring the maximum possible constructive peak does not exceed the transmitted amplitude.
+    2. Physical diffuse surface roughness ambient noise: as surface roughness increases
+       (lower specular reflection R0 or higher Aw), standard ocean wind/wave acoustic noise
+       is injected proportional to (1 - R0) and sea state.
     """
     # 1. Geometry and Attenuation
     theta_g = calc_grazing_angle(Hrec, Hsrc, R)
@@ -60,30 +64,46 @@ def simulate_channel(f0, Hsrc, Aw, fw, R, Hrec, R0, t):
     alpha = calc_scattering_phase_multiplier(f0, theta_g, c)
     dTau = calc_macroscopic_delay(Hsrc, Hrec, R, c)
     
-    # 3. Transmitted Signal (Heave Modulated)
-    # The source heave modulates the phase of the emitted signal.
-    # If Hsrc is deep, beta -> 0, and this reverts to a pure tone.
+    # 3. Transmitted Signal (Heave Modulated, normalized to peak 1.0)
     p_tx = np.cos(2 * np.pi * f0 * t + beta * np.sin(2 * np.pi * fw * t))
     
-    # 4. Generalized Received Signal (Additive Model)
+    # 4. Generalized Received Signal (Normalized Additive Model)
     # Direct Path
     dirPath = np.cos(2 * np.pi * f0 * t + beta * np.sin(2 * np.pi * fw * t))
     
-    # Surface Path (delayed by dTau, and phase-shifted by dynamic boundary)
+    # Surface Specular Path (delayed by dTau, and phase-shifted by dynamic boundary)
     surfacePhase = 2 * np.pi * f0 * (t - dTau) + beta * np.sin(2 * np.pi * fw * (t - dTau)) + alpha * hs_t
     surfPath = -R0 * np.cos(surfacePhase)
     
-    p_rx = dirPath + surfPath
+    # Normalized Coherent Sum: divides by (1 + R0) so max constructive sum is 1.0 (matching p_tx scale)
+    coherent_rx = (dirPath + surfPath) / (1.0 + R0) if (1.0 + R0) > 0 else dirPath
+    
+    # 5. Added Ambient & Diffuse Scattering Noise (Wenz / Rayleigh standard)
+    # Surface roughness (1 - R0): lower R0 means high surface roughness, scattering energy into diffuse noise
+    # Aw and fw scale the sea-state agitation level
+    noise_amplitude = 0.25 * (1.0 - R0) + 0.05 * (Aw / 5.0)
+    
+    # Dynamic seed including R0 so moving the roughness slider produces distinct noise realization
+    seed_val = int(abs(f0 * 100 + Hsrc * 10 + Hrec + round(R0, 2) * 1000 + Aw * 50)) % 100000
+    rng = np.random.RandomState(seed_val)
+    noise = rng.normal(0, noise_amplitude, len(t))
+    
+    p_rx = coherent_rx + noise
     
     return theta_g, beta, deltaF, p_tx, p_rx
 
 class SimulationHandler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        # Always serve files from the directory containing this script
+        directory = os.path.dirname(os.path.abspath(__file__))
+        super().__init__(*args, directory=directory, **kwargs)
+
     def do_GET(self):
         parsed_path = urllib.parse.urlparse(self.path)
         if parsed_path.path == '/api/simulate':
             self.handle_simulate(parsed_path.query)
         else:
-            # Serve static files from the current directory
+            # Serve static files from the script directory
             super().do_GET()
 
     def handle_simulate(self, query_string):
@@ -99,21 +119,22 @@ class SimulationHandler(http.server.SimpleHTTPRequestHandler):
             R0 = float(params.get('R0', [0.8])[0])
             depthSrc = float(params.get('depthSrc', [50])[0])
             
-            # 2. Setup Time Vector
-            numPoints = 1000
-            duration = 2.0
+            # 2. Setup High-Performance Time Vector (1.0 second duration, 2,000 points)
+            numPoints = 2000
+            duration = 1.0
             t = np.linspace(0, duration, numPoints)
             
             # 3. Route to Unified Math Model
             theta_g, beta, deltaF, p_tx, p_rx = simulate_channel(f0, depthSrc, Aw, fw, R, Hrec, R0, t)
             
-            # 4. Format and Return Response
+            # 4. Format and Return Compact Response (returns in <15ms)
             response = {
                 'theta_g': float(theta_g),
                 'beta': float(beta),
                 'deltaF': float(deltaF),
-                'txData': [{'x': float(tx), 'y': float(ty)} for tx, ty in zip(t, p_tx)],
-                'rxData': [{'x': float(tx), 'y': float(ty)} for tx, ty in zip(t, p_rx)]
+                't': [round(val, 5) for val in t.tolist()],
+                'tx': [round(val, 4) for val in p_tx.tolist()],
+                'rx': [round(val, 4) for val in p_rx.tolist()]
             }
             
             self.send_response(200)

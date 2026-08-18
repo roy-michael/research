@@ -6,7 +6,7 @@ from scipy.signal import welch
 
 # Paths
 WAV_PATH = r"D:\RoyStudies\Recordings\hear-my-ship\V1\Aux Vessels\Kapetan MRS_09.08.23_160955_20secCPA.wav"
-OUTPUT_DIR = r"C:\Users\gorke\.gemini\antigravity-ide\brain\47110015-490b-4b68-8ced-2b0f920ed130"
+OUTPUT_DIR = r"d:\dev\research\research\reports\images\welch_segments"
 OUTPUT_IMAGE = os.path.join(OUTPUT_DIR, "welch_diagram.png")
 
 def main():

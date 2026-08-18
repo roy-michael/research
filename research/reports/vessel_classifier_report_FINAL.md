@@ -22,13 +22,13 @@ All models are completely self-contained and implemented from scratch in MATLAB 
 ## 2. Classification Decision Boundaries
 
 ### KNN Classification Boundary
-![KNN Boundary](file:///C:/Users/Roy/dev/research/research/reports/images/vessel_classification_boundary.png)
+![KNN Boundary](file:///C:/Users/Roy/dev/research/research/reports/images/classification/vessel_classification_boundary.png)
 
 ### Custom Quadratic Logistic Regression Boundary
-![LogReg Boundary](file:///C:/Users/Roy/dev/research/research/reports/images/vessel_logreg_boundary.png)
+![LogReg Boundary](file:///C:/Users/Roy/dev/research/research/reports/images/classification/vessel_logreg_boundary.png)
 
 ### Custom Random Forest Boundary
-![RF Boundary](file:///C:/Users/Roy/dev/research/research/reports/images/vessel_rf_boundary.png)
+![RF Boundary](file:///C:/Users/Roy/dev/research/research/reports/images/classification/vessel_rf_boundary.png)
 
 ---
 
@@ -105,7 +105,7 @@ The trained Random Forest model was evaluated on the unseen Croatia dataset (Oce
 * **Underwater-based (Scooter)**: 0 (0.00%)
 
 The decision boundary plot for the new predictions can be seen below:
-![Croatia Boundary](file:///C:/Users/Roy/dev/research/research/reports/images/new_dataset_classification_boundary.png)
+![Croatia Boundary](file:///C:/Users/Roy/dev/research/research/reports/images/classification/new_dataset_classification_boundary.png)
 
 ---
 

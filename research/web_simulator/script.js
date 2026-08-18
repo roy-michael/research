@@ -40,7 +40,10 @@ function initCharts() {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        elements: { point: { radius: 0 }, line: { borderWidth: 2 } },
+        elements: { 
+            point: { radius: 0 }, 
+            line: { borderWidth: 2, tension: 0.3 } 
+        },
         scales: {
             x: { 
                 type: 'linear', 
@@ -92,8 +95,10 @@ function initCharts() {
     });
 }
 
+let updateTimeout = null;
+
 function updateSimulation() {
-    // Update value displays
+    // Update value displays immediately for snappy UI feel
     elements.valDepthSrc.textContent = elements.depthSrc.value;
     elements.valFreq0.textContent = elements.freq0.value;
     elements.valHeaveAmp.textContent = elements.heaveAmp.value;
@@ -102,6 +107,14 @@ function updateSimulation() {
     elements.valDepthRec.textContent = elements.depthRec.value;
     elements.valRoughness.textContent = elements.roughness.value;
 
+    // Debounce network requests by 15ms so rapid dragging doesn't queue up requests
+    if (updateTimeout) clearTimeout(updateTimeout);
+    updateTimeout = setTimeout(() => {
+        executeSimulation();
+    }, 15);
+}
+
+function executeSimulation() {
     // Get values
     const f0 = parseFloat(elements.freq0.value);
     const Aw = parseFloat(elements.heaveAmp.value);
@@ -109,7 +122,6 @@ function updateSimulation() {
     const R = parseFloat(elements.range.value);
     const Hrec = parseFloat(elements.depthRec.value);
     const R0 = parseFloat(elements.roughness.value);
-
     const depthSrc = parseFloat(elements.depthSrc.value);
     
     // Fetch from Python backend
@@ -136,11 +148,15 @@ function updateSimulation() {
             elements.metricBeta.textContent = data.beta.toFixed(2);
             elements.metricDoppler.textContent = data.deltaF.toFixed(2) + ' Hz';
 
-            // Update charts
-            txChart.data.datasets[0].data = data.txData;
-            rxChart.data.datasets[0].data = data.rxData;
-            txChart.update();
-            rxChart.update();
+            // Convert compact arrays to chart points
+            const txPoints = data.t.map((tVal, i) => ({ x: tVal, y: data.tx[i] }));
+            const rxPoints = data.t.map((tVal, i) => ({ x: tVal, y: data.rx[i] }));
+
+            // Update charts smoothly
+            txChart.data.datasets[0].data = txPoints;
+            rxChart.data.datasets[0].data = rxPoints;
+            txChart.update('none'); // 'none' skips animation for instant rendering
+            rxChart.update('none');
         })
         .catch(err => console.error("Fetch error:", err));
 }
