@@ -1,34 +1,27 @@
+import os
 import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'analysis')))
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'plotting')))
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'simulation')))
-
-# generate_dashboard.py
 import json
-import os
+import argparse
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from config import get_output_dir
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-output_dir = os.path.join(script_dir, '..', '..', 'output')
+# Dynamic colors and badges logic
+COLORS = ['#ff5722', '#00a2e8', '#77ac30', '#f43f5e', '#38bdf8', '#8b5cf6']
+BADGE_CLASSES = ['badge-petrol', 'badge-electric', 'badge-croatia', 'badge-red', 'badge-blue', 'badge-purple']
 
-json_path = os.path.join(output_dir, 'spectral_data.json')
-html_path = os.path.join(output_dir, 'spectral_dashboard.html')
+# Fallback styles if classes don't exist
+EXTRA_STYLES = """
+        .badge-red { background: rgba(244, 63, 94, 0.2); color: #f43f5e; }
+        .badge-blue { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+        .badge-purple { background: rgba(139, 92, 246, 0.2); color: #8b5cf6; }
+"""
 
-if not os.path.exists(json_path):
-    print(f"Error: {json_path} does not exist yet. Please run the MATLAB script first.")
-    exit(1)
-
-with open(json_path, 'r') as f:
-    raw_data = json.load(f)
-
-# Structure of HTML with Plotly
 html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interactive Spectral Analysis Dashboard</title>
+    <title>{DASHBOARD_TITLE}</title>
     <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <style>
@@ -169,12 +162,13 @@ html_template = """<!DOCTYPE html>
         .badge-petrol { background: rgba(237, 108, 2, 0.2); color: #ed6c02; }
         .badge-electric { background: rgba(0, 162, 232, 0.2); color: #00a2e8; }
         .badge-croatia { background: rgba(119, 172, 48, 0.2); color: #77ac30; }
+{EXTRA_STYLES}
     </style>
 </head>
 <body>
     <header>
-        <h1>Acoustic Signature Live Dashboard</h1>
-        <p class="subtitle">Interactive Welch PSD & DEMON analysis of Petrol, Electric, and Croatia 2407_1 datasets</p>
+        <h1>{DASHBOARD_TITLE}</h1>
+        <p class="subtitle">{DASHBOARD_SUBTITLE}</p>
     </header>
 
     <div class="dashboard-container">
@@ -223,23 +217,9 @@ html_template = """<!DOCTYPE html>
         let showWelchNoise = true;
         let showDemonNoise = true;
 
-        const colors = {
-            Petrol__Deep_Water_: '#ff5722',
-            Electric__Deep_Water_: '#00a2e8',
-            Dataset_2407_1: '#77ac30'
-        };
-
-        const labels = {
-            Petrol__Deep_Water_: 'Petrol (Deep Water)',
-            Electric__Deep_Water_: 'Electric (Deep Water)',
-            Dataset_2407_1: 'Croatia 2407_1'
-        };
-
-        const badgeClasses = {
-            Petrol__Deep_Water_: 'badge-petrol',
-            Electric__Deep_Water_: 'badge-electric',
-            Dataset_2407_1: 'badge-croatia'
-        };
+        const dynamicColors = __COLORS_PLACEHOLDER__;
+        const dynamicLabels = __LABELS_PLACEHOLDER__;
+        const dynamicBadges = __BADGES_PLACEHOLDER__;
 
         function renderCharts() {
             renderWelch();
@@ -254,8 +234,8 @@ html_template = """<!DOCTYPE html>
             Object.keys(data.welch).forEach(dataset => {
                 const freq = data.welch[dataset].freq;
                 const psd = data.welch[dataset].psd;
-                const col = colors[dataset];
-                const label = labels[dataset];
+                const col = dynamicColors[dataset];
+                const label = dynamicLabels[dataset];
 
                 // 1. Raw spectrum curve
                 traces.push({
@@ -272,11 +252,9 @@ html_template = """<!DOCTYPE html>
                 // 2. Main Signal Peaks and Bandwidths
                 const peaks = data.peaks[dataset].welch_peaks;
                 peaks.forEach((peak, idx) => {
-                    // Extract segment indices for bandwidth
                     const fLow = peak.bw_low;
                     const fHigh = peak.bw_high;
                     
-                    // Create segments for the -3dB bandwidth line
                     const segFreq = [];
                     const segPsd = [];
                     for(let i=0; i<freq.length; i++) {
@@ -286,7 +264,6 @@ html_template = """<!DOCTYPE html>
                         }
                     }
 
-                    // Bandwidth segment trace
                     traces.push({
                         x: segFreq,
                         y: segPsd,
@@ -299,7 +276,6 @@ html_template = """<!DOCTYPE html>
                         hovertemplate: `<b>${label} Peak</b><br>Freq: %{x:.3f} kHz<br>PSD: %{y:.2f} dB<br>BW: ${(fLow/1000).toFixed(3)}-${(fHigh/1000).toFixed(3)} kHz<extra></extra>`
                     });
 
-                    // Peak marker trace
                     traces.push({
                         x: [peak.freq / 1000],
                         y: [peak.psd],
@@ -332,10 +308,9 @@ html_template = """<!DOCTYPE html>
             Object.keys(data.demon).forEach(dataset => {
                 const freq = data.demon[dataset].freq;
                 const psd = data.demon[dataset].psd;
-                const col = colors[dataset];
-                const label = labels[dataset];
+                const col = dynamicColors[dataset];
+                const label = dynamicLabels[dataset];
 
-                // 1. Raw spectrum curve
                 traces.push({
                     x: freq,
                     y: psd,
@@ -347,7 +322,6 @@ html_template = """<!DOCTYPE html>
                     hoverinfo: 'skip'
                 });
 
-                // 2. Peaks and Bandwidths
                 const peaks = data.peaks[dataset].demon_peaks;
                 peaks.forEach((peak, idx) => {
                     const fLow = peak.bw_low;
@@ -362,7 +336,6 @@ html_template = """<!DOCTYPE html>
                         }
                     }
 
-                    // Bandwidth segment trace
                     traces.push({
                         x: segFreq,
                         y: segPsd,
@@ -375,7 +348,6 @@ html_template = """<!DOCTYPE html>
                         hovertemplate: `<b>${label} Modulation Peak</b><br>Freq: %{x:.1f} Hz<br>PSD: %{y:.2f} dB<br>BW: ${fLow.toFixed(1)}-${fHigh.toFixed(1)} Hz<extra></extra>`
                     });
 
-                    // Peak marker trace
                     traces.push({
                         x: [peak.freq],
                         y: [peak.psd],
@@ -407,8 +379,8 @@ html_template = """<!DOCTYPE html>
             tbody.innerHTML = '';
 
             Object.keys(data.peaks).forEach(dataset => {
-                const label = labels[dataset];
-                const badge = badgeClasses[dataset];
+                const label = dynamicLabels[dataset];
+                const badge = dynamicBadges[dataset];
                 
                 // Welch Peaks
                 data.peaks[dataset].welch_peaks.forEach(peak => {
@@ -456,10 +428,50 @@ html_template = """<!DOCTYPE html>
 </html>
 """
 
-# Replace placeholder with JSON string
-html_output = html_template.replace("__DATA_PLACEHOLDER__", json.dumps(raw_data))
+def generate_dashboard(json_path, dataset_name, title, subtitle):
+    if not os.path.exists(json_path):
+        print(f"Error: {json_path} does not exist.")
+        return
 
-with open(html_path, 'w', encoding='utf-8') as f:
-    f.write(html_output)
+    with open(json_path, 'r') as f:
+        raw_data = json.load(f)
 
-print(f"Interactive dashboard successfully generated at {html_path}")
+    datasets = list(raw_data['welch'].keys())
+    
+    dynamic_colors = {}
+    dynamic_labels = {}
+    dynamic_badges = {}
+    
+    for i, ds in enumerate(datasets):
+        dynamic_colors[ds] = COLORS[i % len(COLORS)]
+        dynamic_labels[ds] = ds.replace('_', ' ')
+        dynamic_badges[ds] = BADGE_CLASSES[i % len(BADGE_CLASSES)]
+
+    html_output = html_template.replace("{DASHBOARD_TITLE}", title)
+    html_output = html_output.replace("{DASHBOARD_SUBTITLE}", subtitle)
+    html_output = html_output.replace("{EXTRA_STYLES}", EXTRA_STYLES)
+    html_output = html_output.replace("__DATA_PLACEHOLDER__", json.dumps(raw_data))
+    html_output = html_output.replace("__COLORS_PLACEHOLDER__", json.dumps(dynamic_colors))
+    html_output = html_output.replace("__LABELS_PLACEHOLDER__", json.dumps(dynamic_labels))
+    html_output = html_output.replace("__BADGES_PLACEHOLDER__", json.dumps(dynamic_badges))
+
+    out_dir = get_output_dir(dataset_name)
+    html_path = out_dir / f"{dataset_name}_dashboard.html"
+
+    with open(html_path, 'w', encoding='utf-8') as f:
+        f.write(html_output)
+
+    print(f"Interactive dashboard successfully generated at {html_path}")
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate interactive HTML dashboard from JSON data.")
+    parser.add_argument("--json", required=True, help="Path to the JSON data file")
+    parser.add_argument("--dataset-name", required=True, help="Name of the dataset")
+    parser.add_argument("--title", default="Acoustic Signature Live Dashboard", help="Dashboard title")
+    parser.add_argument("--subtitle", default="Interactive Welch PSD & DEMON analysis", help="Dashboard subtitle")
+    
+    args = parser.parse_args()
+    generate_dashboard(args.json, args.dataset_name, args.title, args.subtitle)
+
+if __name__ == '__main__':
+    main()

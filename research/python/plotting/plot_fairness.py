@@ -1,39 +1,33 @@
 import sys
 import os
+import argparse
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'analysis')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'plotting')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'simulation')))
 
-import os
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
-import pickle
-import hashlib
 
 from analyze_fairness import compute_fairness, extract_frequencies_for_files
-from analyze_pll import butter_bandpass_filter, digital_pll, extract_pll_phases
+from analyze_pll import extract_pll_phases
+from config import get_output_dir
 
-def extract_freq_amp_dpv(file_paths, name, target_freq=497.0, segment_length_seconds=2):
-    min_freq = max(50.0, target_freq - 100.0)
-    max_freq = target_freq + 100.0
+def extract_freq_amp(file_paths, name, target_freq, bandpass_margin, segment_length_seconds=2):
+    min_freq = max(10.0, target_freq - bandpass_margin)
+    max_freq = target_freq + bandpass_margin
     f, a, _ = extract_frequencies_for_files(file_paths, name, min_freq, max_freq, segment_length_seconds)
     return f, a
 
-def main():
-    directory = r"C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2307"
+def plot_dataset_fairness(directory, dataset_name, f0, bandpass_margin):
     wav_files = glob.glob(os.path.join(directory, "*.wav"))
     if not wav_files:
-        print("No wav files found.")
+        print(f"No wav files found in {directory}")
         return
-        
-    # Process only 10 files to keep execution time reasonable
-    wav_files = wav_files[:10]
         
     SEGMENT_SEC = 2
     BUFFER_SEC = 15
-    f0 = 497.0
     harmonics = list(range(1, 11))
     
     fig_p, axes_p = plt.subplots(5, 2, figsize=(15, 20))
@@ -52,7 +46,7 @@ def main():
         print(f"Processing Harmonic {h} ({target_f} Hz)...")
         
         # 1. Phase Fairness
-        p_phases = extract_pll_phases(wav_files, f"dpv_H{h}", target_f, SEGMENT_SEC, bandpass_margin=100.0)
+        p_phases = extract_pll_phases(wav_files, f"{dataset_name}_H{h}", target_f, SEGMENT_SEC, bandpass_margin=bandpass_margin)
         fairness_p, _ = compute_fairness(p_phases, SEGMENT_SEC, BUFFER_SEC, is_circular=True)
         
         ax = axes_p[i]
@@ -66,7 +60,7 @@ def main():
             ax.legend()
             
         # 2. Freq/Amp Fairness
-        freqs, amps = extract_freq_amp_dpv(wav_files, f"DPV_H{h}_FA", target_f, SEGMENT_SEC)
+        freqs, amps = extract_freq_amp(wav_files, f"{dataset_name}_H{h}_FA", target_f, bandpass_margin, SEGMENT_SEC)
         fairness_f, _ = compute_fairness(freqs, SEGMENT_SEC, BUFFER_SEC, is_circular=False)
         fairness_a, _ = compute_fairness(amps, SEGMENT_SEC, BUFFER_SEC, is_circular=False)
         
@@ -90,16 +84,28 @@ def main():
             ax.axvline(np.mean(fairness_a), color='black', linestyle='dashed')
             ax.legend()
 
+    out_dir = get_output_dir(dataset_name)
+    
     fig_p.tight_layout()
-    fig_p.savefig('dpv_pll_harmonic_fairness.png')
+    fig_p.savefig(out_dir / f'{dataset_name}_pll_harmonic_fairness.png')
     
     fig_f.tight_layout()
-    fig_f.savefig('dpv_jains_freq_harmonics.png')
+    fig_f.savefig(out_dir / f'{dataset_name}_jains_freq_harmonics.png')
     
     fig_a.tight_layout()
-    fig_a.savefig('dpv_jains_amp_harmonics.png')
+    fig_a.savefig(out_dir / f'{dataset_name}_jains_amp_harmonics.png')
     
-    print("Saved all DPV fairness plots!")
+    print(f"Saved all {dataset_name} fairness plots to {out_dir}!")
+
+def main():
+    parser = argparse.ArgumentParser(description="Plot fairness metrics for a dataset.")
+    parser.add_argument("--dir", required=True, help="Directory containing the .wav files")
+    parser.add_argument("--dataset-name", required=True, help="Name of the dataset (for output folder and files)")
+    parser.add_argument("--f0", type=float, required=True, help="Fundamental frequency (Hz)")
+    parser.add_argument("--margin", type=float, default=20.0, help="Bandpass margin (Hz)")
+    
+    args = parser.parse_args()
+    plot_dataset_fairness(args.dir, args.dataset_name, args.f0, args.margin)
 
 if __name__ == '__main__':
     main()
