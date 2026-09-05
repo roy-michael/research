@@ -1,0 +1,418 @@
+clear;clc;close all;
+
+dataset_path = 'D:\RoyStudies\Recordings\Ashdod\scooter_exp';
+    
+files = dir(fullfile(dataset_path, '*.wav'));
+duration = 10;    
+
+for j = 1:length(files)
+    file_name = "record_20260824_123438.wav"; % files(j).name
+    file_path = fullfile(dataset_path, file_name);
+    
+    try        
+        [signal, fs] = audioread(file_path);
+
+        signal = signal(1:duration*fs, :);
+        x_axis = linspace(-fs/2, fs/2, length(signal));
+        
+        window = round(0.05*fs);
+        noverlap = round(0.9*window);
+        nfft = 2048;
+
+        % assume signal (N x M) and fs exist
+        t = (0:size(signal,1)-1) / fs;
+
+        figure;
+        % single axes, multiple lines
+        plot(t, signal);
+        xlabel('Time (s)'); ylabel('Amplitude');
+        legend(arrayfun(@(k) sprintf('Ch%d',k), 1:size(signal,2), 'UniformOutput', false));
+        grid on;
+
+
+        figure;
+        for ch = 1:size(signal,2)
+            subplot(size(signal,2),1,ch);
+            plot(t, signal(:,ch));
+            ylabel(sprintf('Ch%d',ch));
+            if ch==1, title('Time Domain Channels'); end
+            if ch==size(signal,2), xlabel('Time (s)'); end
+        end
+
+        % figure;
+        % for ch = 1:size(signal,2)
+        %     subplot(size(signal,2),1,ch);
+        %     spectrogram(signal(:,ch), window, noverlap, nfft, fs, 'yaxis');
+        %     title(sprintf('Spectrogram Ch%d', ch));
+        % end
+
+        % Safe Channel Selection
+        if size(signal, 2) > 1
+            channel_power = rms(signal, 1);
+            [best_val, best_idx] = max(channel_power);
+            signal = signal(:, best_idx);
+            fprintf('Using chanel: %d (%d)\n', best_idx, best_val);
+        end
+        
+        % prepare vectors
+        N = length(signal);
+        t = (0:N-1) / fs;
+        % frequency axis for fftshifted magnitude
+        data = fftshift(abs(fft(signal)));
+        f_axis = (-N/2 : N/2-1) * (fs / N);
+
+        figure;
+        subplot(2,1,1);
+        plot(f_axis, data, 'b-', 'LineWidth', 1.2);
+        xlabel('Frequency (Hz)'); ylabel('Magnitude');
+        title('Magnitude Spectrum (fftshift)');
+        xlim([-fs/2, fs/2]);
+        grid on;
+
+        subplot(2,1,2);
+        plot(t, signal, 'k-');
+        xlabel('Time (s)'); ylabel('Amplitude');
+        title('Time Domain Signal');
+        grid on;
+
+
+        % assume signal (N x M) and fs exist; choose one channel if multichannel
+        ch = 1;
+        x = signal(:,min(ch,size(signal,2)));
+        t = (0:length(x)-1)/fs;
+
+
+        % Pre-filter / smooth before peak detection
+        % Option A: Lowpass FIR (cutoff ~ Nyquist*0.1 -> e.g. 0.1*fs)
+        fc = 1000;                       % adjust cutoff frequency (Hz)
+        [b,a] = butter(4, fc/(fs/2));    % 4th-order Butterworth
+        x_filt = filtfilt(b,a,x);
+
+        % Option B: Savitzky-Golay smooth (alternative)
+        % sgSpan = round(0.01*fs); if mod(sgSpan,2)==0, sgSpan=sgSpan+1; end
+        % x_filt = sgolayfilt(x,3,sgSpan);
+
+        % Choose displayed signal for debugging
+        x_for_peaks = x_filt;
+
+       
+       
+
+
+        % --- Frequency-domain peak detection ---
+        N = length(x);
+        Y = fft(x);                    % complex spectrum
+        Mag = abs(Y)/N;                % magnitude (normalize by N)
+        if rem(N,2)==0
+            % even N: keep bins 1..N/2+1
+            MagPos = Mag(1:N/2+1);
+            fPos = (0:N/2) * (fs/N);
+        else
+            % odd N: keep bins 1..(N+1)/2
+            MagPos = Mag(1:(N+1)/2);
+            fPos = (0:(N-1)/2) * (fs/N);
+        end
+
+
+        % --- Frequency-domain peak detection (robust top-N) ---
+        % compute one-sided magnitude as before (MagPos, fPos)
+        MagSmooth = movmedian(MagPos, max(3, round(length(MagPos)/200)));
+
+        % try findpeaks with relaxed thresholds first
+        minProm = 0.02 * max(MagSmooth);
+        minHt   = 0.005 * max(MagSmooth);
+        [pkVals, pkLocs] = findpeaks(MagSmooth, fPos, ...
+            'MinPeakProminence', minProm, ...
+            'MinPeakHeight', minHt, ...
+            'MinPeakDistance', 0.5);    % Hz
+
+        % fallback: if too few peaks, use islocalmax to get candidates
+        if numel(pkVals) < 10
+            locsLogical = islocalmax(MagSmooth);
+            candFreqs = fPos(locsLogical);
+            candMags  = MagSmooth(locsLogical);
+            if ~isempty(candFreqs)
+                [~, sidx] = sort(candMags, 'descend');
+                pick = 1:min(10, numel(sidx));
+                topFreqs = candFreqs(sidx(pick));
+                topMags  = candMags(sidx(pick));
+            else
+                topFreqs = [];
+                topMags  = [];
+            end
+        else
+            % select top 10 from findpeaks results
+            Npeaks = 10;
+            [~, sortIdx] = sort(pkVals, 'descend');
+            topIdx = sortIdx(1:min(Npeaks, numel(pkVals)));
+            topFreqs = pkLocs(topIdx);   % frequencies (x-values)
+            topMags  = pkVals(topIdx);
+        end
+
+        % plot spectrum and annotate top peaks
+        figure;
+        plot(fPos, MagSmooth, 'b-'); hold on;
+        if ~isempty(topFreqs)
+            plot(topFreqs, topMags, 'ro', 'MarkerFaceColor','r','MarkerSize',6);
+            for k = 1:numel(topFreqs)
+                text(topFreqs(k), topMags(k), sprintf(' %.1f Hz', topFreqs(k)), ...
+                    'VerticalAlignment','bottom','FontSize',9);
+            end
+        end
+        xlabel('Frequency (Hz)'); ylabel('Magnitude');
+        title('One-Sided Magnitude Spectrum with Top Peaks');
+        xlim([0 fs/2]); grid on; hold off;
+
+
+
+        % compute PSD with pwelch
+        nfft = 8192;
+        win = hamming(round(0.5*fs));    % adjust window length
+        ov = round(0.5 * length(win));
+        [pxx, f] = pwelch(signal, win, ov, nfft, fs);
+
+        % limit frequency range (e.g. 0-4000 Hz)
+        maxf = min(fs/2, 4000);
+        mask = f <= maxf;
+        f_zoom = f(mask);
+        pxx_zoom = pxx(mask);
+
+        % remove noise floor (moving median) and floor at zero
+        mf_win = max(5, round(length(pxx_zoom)/200));
+        noise_floor = movmedian(pxx_zoom, mf_win);
+        spec = pxx_zoom - noise_floor;
+        spec(spec < 0) = 0;
+
+        % find peaks on spec (linear). tune MinPeakProminence/Distance as needed
+        minProm = 0.02 * max(spec);
+        minHt   = 0.005 * max(spec);
+        [pkVals, pkIdx] = findpeaks(spec, f_zoom, 'MinPeakProminence', minProm, ...
+            'MinPeakHeight', minHt, 'MinPeakDistance', 0.5);
+
+        % pick top 10
+        Npeaks = 10;
+        [~, sidx] = sort(pkVals, 'descend');
+        pick = sidx(1:min(Npeaks, numel(sidx)));
+        topFreqs = pkIdx(pick);
+        topMags  = pkVals(pick);
+
+        % plot
+        figure;
+        plot(f_zoom, spec, 'b-'); hold on;
+        plot(topFreqs, topMags, 'ro','MarkerFaceColor','r');
+        xlabel('Frequency (Hz)'); ylabel('PSD (a.u.)');
+        title('Welch PSD (noise-floor removed) with Top Peaks'); xlim([0 maxf]); grid on;
+        for k=1:numel(topFreqs), text(topFreqs(k), topMags(k), sprintf(' %.1f Hz', topFreqs(k)), 'VerticalAlignment','bottom'); end
+
+
+
+
+        % spectrogram params (match what you used visually)
+        window = round(0.05*fs);
+        noverlap = round(0.9*window);
+        nfft = 4096;
+        [S, F, T] = spectrogram(signal, window, noverlap, nfft, fs);
+        Smag = abs(S);
+
+        % aggregate: choose 'mean' or 'max' across time
+        spec_mean = mean(Smag, 2);   % time-averaged
+        spec_max  = max(Smag, [], 2);% picks intermittent strong lines
+        specAgg = spec_max;          % use spec_max first; try spec_mean if needed
+
+        % optionally smooth and remove median noise floor
+        specAgg = movmedian(specAgg, max(3, round(length(specAgg)/200)));
+        noise_floor = movmedian(specAgg, max(5, round(length(specAgg)/100)));
+        specAgg = specAgg - noise_floor; specAgg(specAgg<0)=0;
+
+        % findpeaks on aggregated spectrogram
+        [minProm, minHt] = deal(0.02*max(specAgg), 0.005*max(specAgg));
+        [pkVals, pkIdx] = findpeaks(specAgg, F, 'MinPeakProminence', minProm, 'MinPeakHeight', minHt, 'MinPeakDistance', 0.5);
+
+        % top-N selection and plot
+        Npeaks = 10;
+        [~, sidx] = sort(pkVals, 'descend');
+        pick = sidx(1:min(Npeaks, numel(sidx)));
+        topFreqs = pkIdx(pick); topMags = pkVals(pick);
+
+        figure;
+        plot(F, specAgg, 'b-'); hold on;
+        plot(topFreqs, topMags, 'ro','MarkerFaceColor','r');
+        xlabel('Frequency (Hz)'); ylabel('Magnitude'); xlim([0 min(fs/2,4000)]); grid on;
+        title('Spectrogram Aggregate (max over time) with Top Peaks');
+        for k=1:numel(topFreqs), text(topFreqs(k), topMags(k), sprintf(' %.1f Hz', topFreqs(k)), 'VerticalAlignment','bottom'); end
+
+
+        % ----- Envelope Diagrams (insert after signal and t exist) -----
+        % Time-domain envelopes
+        env_hil = abs(hilbert(signal));                       % analytic envelope
+        env_rms = envelope(signal, round(0.02*fs), 'rms');    % RMS envelope (window ~20 ms)
+        env_peak = envelope(signal, round(0.05*fs), 'peak');   % peak envelope (separation ~50 ms)
+
+        figure;
+        subplot(3,1,1);
+        plot(t, signal, 'k-'); hold on;
+        plot(t, env_hil, 'r-', 'LineWidth', 1.2);
+        plot(t, env_rms, 'g-', 'LineWidth', 1.2);
+        plot(t, env_peak, 'r-', 'LineWidth', 1.2);
+        xlabel('Time (s)'); ylabel('Amplitude');
+        legend('Signal','Analytic Env','RMS Env','Peak Env');
+        title('Time-Domain Signal with Envelopes'); grid on; hold off;
+
+        % Spectrogram with frequency-envelope (max over time)
+        window = round(0.05*fs);
+        noverlap = round(0.9*window);
+        nfft = 64 * 1024;
+        [S, F, T] = spectrogram(signal, window, noverlap, nfft, fs);
+        Smag = abs(S);
+
+        % frequency envelope: max across time (preserves intermittent lines)
+        freqEnv = max(Smag, [], 2);
+        % smooth frequency envelope for plotting
+        freqEnv_s = movmedian(freqEnv, max(3, round(length(freqEnv)/200)));
+
+        figure;
+        imagesc(T, F, 20*log10(Smag + eps)); axis xy;
+        hold on;
+        plot([T(1) T(end)], [0 0], 'w:'); % placeholder if needed
+        plot(mean([T(1) T(end)]), -1, 'w.'); % ensure overlay works
+        % overlay scaled freq envelope as a white curve (normalize for visibility)
+        normEnv = freqEnv_s / max(freqEnv_s) * (max(F) * 0.9);
+        plot(linspace(T(1), T(end), numel(normEnv)), interp1(F, normEnv, linspace(F(1),F(end),numel(normEnv))), 'w-', 'LineWidth', 2);
+        colormap jet; colorbar; ylim([0 min(fs/2,4000)]);
+        xlabel('Time (s)'); ylabel('Frequency (Hz)');
+        title('Spectrogram (dB) with Frequency Envelope (max over time)');
+        hold off;
+
+        
+
+    catch ME
+        fprintf('  Failed %s: %s\n', files(j).name, ME.message);
+        centroids(j) = NaN;
+        bandwidths(j) = NaN;
+    end
+
+    fprintf('Done.\n');
+    return
+end
+       
+return
+
+% 
+%             % Compute overall PSD
+%             nfft = 8192;
+%             window_length = 8192;
+%             overlap = round(window_length * 0.5);
+%             [pxx, f] = pwelch(data, hanning(window_length), overlap, nfft, fs);
+% 
+%             % Limit to 0-4000 Hz
+%             max_plot_f = min(fs/2, 4000);
+%             mask = f >= 0 & f <= max_plot_f;
+%             f_zoom = f(mask);
+%             v = pxx(mask);
+% 
+%             % 1. Noise Floor Normalization (Moving Median)
+%             window_size = max(20, round(length(v) / 20));
+%             noise_floor = movmedian(v, window_size);
+%             v_norm = v - noise_floor;
+%             v_norm(v_norm < 0) = 0;
+% 
+%             % Zero out ultra-low flow noise (< 20 Hz)
+%             v_norm(f_zoom < 20) = 0;
+% 
+%             % 2. Isolate Dominant Lobe (10% Threshold)
+%             [max_val, f_hat_idx] = max(v_norm);
+%             if max_val == 0
+%                 centroids(j) = NaN;
+%                 bandwidths(j) = NaN;
+%                 continue;
+%             end
+%             thresh = 0.1 * max_val;
+% 
+%             left_idx = f_hat_idx;
+%             while left_idx > 1 && v_norm(left_idx-1) > thresh
+%                 left_idx = left_idx - 1;
+%             end
+% 
+%             right_idx = f_hat_idx;
+%             while right_idx < length(v_norm) && v_norm(right_idx+1) > thresh
+%                 right_idx = right_idx + 1;
+%             end
+% 
+%             f_lobe = f_zoom(left_idx:right_idx);
+%             v_lobe = v_norm(left_idx:right_idx);
+% 
+%             % 3. RMS Calculation
+%             total_power = sum(v_lobe);
+%             if total_power > 0
+%                 f_centroid = sum(f_lobe .* v_lobe) / total_power;
+%                 bw_rms = sqrt(sum(((f_lobe - f_centroid).^2) .* v_lobe) / total_power);
+%             else
+%                 f_centroid = f_zoom(f_hat_idx);
+%                 bw_rms = 0;
+%             end
+% 
+%             centroids(j) = f_centroid;
+%             bandwidths(j) = bw_rms;
+%         catch ME
+%             fprintf('  Failed %s: %s\n', files(j).name, ME.message);
+%             centroids(j) = NaN;
+%             bandwidths(j) = NaN;
+%         end
+%     end
+% 
+%     results(i).class_name = class_name;
+%     results(i).centroids = centroids(~isnan(centroids));
+%     results(i).bandwidths = bandwidths(~isnan(bandwidths));
+% end
+% 
+% % Plotting Histograms
+% num_classes = length(results);
+% colors = lines(num_classes);
+% 
+% % Figure 1: Centroids
+% fig1 = figure('Name', 'AUV Dominant Frequency (Centroid) Histograms', 'Position', [100, 100, 1200, 800]);
+% for i = 1:num_classes
+%     if isempty(results(i).centroids)
+%         continue;
+%     end
+%     subplot(num_classes, 1, i);
+%     histogram(results(i).centroids, 'BinWidth', 50, 'FaceColor', colors(i,:), 'EdgeColor', 'black');
+%     title(results(i).class_name, 'Interpreter', 'none');
+%     xlim([0, 4000]);
+%     ylabel('Count');
+% end
+% xlabel('Centroid Frequency (Hz)');
+% sgtitle('AUV Dominant Frequency (Centroid) by Experiment Part');
+% 
+% % Figure 2: Bandwidths
+% fig2 = figure('Name', 'AUV RMS Bandwidth Histograms', 'Position', [150, 150, 1200, 800]);
+% for i = 1:num_classes
+%     if isempty(results(i).bandwidths)
+%         continue;
+%     end
+%     subplot(num_classes, 1, i);
+%     histogram(results(i).bandwidths, 'BinWidth', 10, 'FaceColor', colors(i,:), 'EdgeColor', 'black');
+%     title(results(i).class_name, 'Interpreter', 'none');
+%     xlim([0, 1000]);
+%     ylabel('Count');
+% end
+% xlabel('RMS Bandwidth (Hz)');
+% sgtitle('AUV RMS Bandwidth by Experiment Part');
+% 
+% % Figure 3: Scatter Plot
+% fig3 = figure('Name', 'AUV Centroid vs Bandwidth', 'Position', [200, 200, 800, 600]);
+% hold on;
+% for i = 1:num_classes
+%     if isempty(results(i).centroids)
+%         continue;
+%     end
+%     scatter(results(i).centroids, results(i).bandwidths, 36, colors(i,:), 'filled', 'DisplayName', results(i).class_name, 'MarkerFaceAlpha', 0.6);
+% end
+% hold off;
+% xlabel('Centroid Frequency (Hz)');
+% ylabel('RMS Bandwidth (Hz)');
+% title('AUV Centroid vs RMS Bandwidth');
+% legend('Location', 'best', 'Interpreter', 'none');
+% grid on;
+
+fprintf('Done.\n');

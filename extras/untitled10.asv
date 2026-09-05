@@ -1,0 +1,344 @@
+% =========================================================================
+% Segmented Multi-Target Acoustic Tracker with Aggregated Report
+% Processes long-duration recordings in localized time blocks, aggregates
+% targets to remove redundancies, and plots a memory-safe global spectrogram.
+% =========================================================================
+clear; clc; close all;
+
+% --- 1. CONFIGURATION ---
+dataset_path = 'D:\RoyStudies\Recordings\Croatia\Ocean Sonics\2507_1_1k';
+files = dir(fullfile(dataset_path, '*.wav'));
+
+if isempty(files)
+error('No .wav files found in the specified directory.');
+end
+
+% Sort alphanumerically to guarantee chronological order
+fileNames = {files.name};
+[~, sortIdx] = sort(fileNames);
+files = files(sortIdx);
+
+% Global Search Bounds & Downsampling
+TARGET_FS = 5000; % Safely covers up to 2500 Hz while saving 90% RAM
+f_min_global = 50;
+f_max_global = 2000;
+
+% Analysis Segment Size
+SEGMENT_SEC = 120; % Process in 2-minute blocks
+OVERLAP_SEC = 30;  % 30-second overlap prevents splitting signals
+
+% --- 2. DATA LOAD & DOWNSAMPLE ---
+concatenated_signal = [];
+fprintf('Concatenating and downsampling %d files...\n', length(files));
+
+for j = 1:length(files)
+file_path = fullfile(dataset_path, files(j).name);
+[sig, orig_fs] = audioread(file_path);
+
+% Select best channel immediately to save memory
+sig = select_best_channel(sig);
+
+% Downsample to target FS
+if orig_fs > TARGET_FS
+    [p, q] = rat(TARGET_FS / orig_fs);
+    sig = resample(sig, p, q);
+end
+
+concatenated_signal = [concatenated_signal; sig];
+
+
+end
+
+total_len_sec = length(concatenated_signal) / TARGET_FS;
+fprintf('Total recording length: %.2f seconds\n\n', total_len_sec);
+
+% --- 3. SEGMENTED PROCESSING LOOP ---
+SEGMENT_SAMPLES = SEGMENT_SEC * TARGET_FS;
+step_samples = (SEGMENT_SEC - OVERLAP_SEC) * TARGET_FS;
+num_blocks = floor((length(concatenated_signal) - SEGMENT_SAMPLES) / step_samples) + 1;
+
+all_detections = []; % Database for all tracked targets
+
+for b = 1:num_blocks
+start_idx = 1 + (b-1) * step_samples;
+end_idx = start_idx + SEGMENT_SAMPLES - 1;
+start_time_sec = start_idx / TARGET_FS;
+end_time_sec = end_idx / TARGET_FS;
+
+fprintf('=== Block %d / %d (%.1f to %.1f sec) ===\n', ...
+    b, num_blocks, start_time_sec, end_time_sec);
+
+segment_sig = concatenated_signal(start_idx:end_idx);
+
+% Step A: High-Resolution STFT on this segment
+[P, F, T] = compute_spectrogram(segment_sig, TARGET_FS);
+
+% Step B: Discover Fundamental Targets
+[target_freqs, target_powers, num_targets] = find_fundamental_targets(P, F, f_min_global, f_max_global);
+
+if num_targets > 0
+    % Limit to top 4 strongest fundamentals PER SEGMENT to prevent noise clutter
+    if num_targets > 4
+        [~, sort_idx] = sort(target_powers, 'descend');
+        target_freqs = target_freqs(sort_idx(1:4));
+        target_powers = target_powers(sort_idx(1:4));
+        
+        [target_freqs, resort_idx] = sort(target_freqs);
+        target_powers = target_powers(resort_idx);
+        num_targets = 4;
+    end
+    
+    max_power = max(target_powers);
+    rel_intensities = target_powers - max_power;
+    
+    % Step C: Track, extract, and save features to database
+    dets = track_and_extract_features(P, F, T, target_freqs, rel_intensities, start_time_sec, end_time_sec);
+    all_detections = [all_detections; dets];
+else
+    fprintf('  No targets found in this block.\n');
+end
+fprintf('\n');
+
+
+end
+
+% --- 4. AGGREGATED REPORT (DEDUPLICATION) ---
+fprintf('\n');
+fprintf('FINAL REPORT: UNIQUE AGGREGATED TARGETS\n');
+fprintf('=======================================\n');
+
+if isempty(all_detections)
+fprintf('No sustained targets were identified in the recording.\n');
+else
+% Sort all detections by center frequency to group them
+center_freqs = [all_detections.center_f];
+[~, sort_idx] = sort(center_freqs);
+all_detections = all_detections(sort_idx);
+
+grouped_targets = {};
+current_group = all_detections(1);
+group_tol = 6.0; % Hz tolerance to group detections as the same vessel
+
+for k = 2:length(all_detections)
+    if abs(all_detections(k).center_f - mean([current_group.center_f])) <= group_tol
+        current_group(end+1) = all_detections(k);
+    else
+        grouped_targets{end+1} = current_group;
+        current_group = all_detections(k);
+    end
+end
+grouped_targets{end+1} = current_group;
+
+% Print aggregated stats
+for k = 1:length(grouped_targets)
+    grp = grouped_targets{k};
+    avg_center_f = mean([grp.center_f]);
+    max_bw = max([grp.bw]);
+    max_df = max([grp.df]);
+    avg_fm = mean([grp.fm]);
+    
+    % Filter out extremely weak transient matches from the maximum calculation
+    valid_ints = [grp.rel_int];
+    max_int = max(valid_ints(valid_ints > -20)); 
+    if isempty(max_int), max_int = max(valid_ints); end
+    
+    % Calculate active time footprint (treating blocks as discrete appearances)
+    global_pct_active = (length(grp) / num_blocks) * 100;
+    
+    fprintf('Target %d: ~%.2f Hz\n', k, avg_center_f);
+    fprintf('  Active Time      : %5.1f%% of total recording blocks\n', global_pct_active);
+    fprintf('  Peak Intensity   : %5.2f dB (relative to block maximums)\n', max_int);
+    fprintf('  Max Carson BW    : %5.2f Hz (Max df: %.2f, Avg fm: %.2f)\n\n', max_bw, max_df, avg_fm);
+end
+
+
+end
+
+% --- 5. GLOBAL MEMORY-SAFE VISUALIZATION ---
+fprintf('Computing memory-optimized global spectrogram for plotting...\n');
+
+% Slightly coarser STFT window specifically for the 1.5 hour global plot
+win_global = round(TARGET_FS * 0.5);
+nov_global = round(win_global * 0.5);
+nfft_global = 8192;
+
+[S_g, F_g, T_g] = spectrogram(concatenated_signal, win_global, nov_global, nfft_global, TARGET_FS);
+P_g_dB = 10 * log10(abs(S_g).^2);
+
+% Crop matrix to requested bounds before doing any rendering
+plot_idx = find(F_g >= f_min_global & F_g <= f_max_global);
+F_plot = F_g(plot_idx);
+P_plot = P_g_dB(plot_idx, :);
+
+% Graphical Downsampling: Compress the matrix to a maximum of 2500 columns for the GPU
+max_plot_width = 2500;
+if size(P_plot, 2) > max_plot_width
+step = ceil(size(P_plot, 2) / max_plot_width);
+T_plot = T_g(1:step:end);
+P_plot = P_plot(:, 1:step:end);
+else
+T_plot = T_g;
+end
+
+figure('Name', 'Concatenated Global Spectrogram', 'NumberTitle', 'off', 'Position', [100, 100, 1200, 500]);
+imagesc(T_plot, F_plot, P_plot);
+axis xy; axis tight; colormap(jet);
+ylabel('Frequency (Hz)', 'FontSize', 12, 'FontWeight', 'bold');
+xlabel('Time (s)', 'FontSize', 12, 'FontWeight', 'bold');
+title('Global Spectrogram of Entire Recording', 'FontSize', 14);
+colorbar;
+drawnow;
+
+% =========================================================================
+%                         LOCAL FUNCTIONS
+% =========================================================================
+
+function sig_mono = select_best_channel(sig_matrix)
+if size(sig_matrix, 2) > 1
+channel_power = rms(sig_matrix, 1);
+[~, best_idx] = max(channel_power);
+sig_mono = sig_matrix(:, best_idx);
+else
+sig_mono = sig_matrix;
+end
+end
+
+function [P, F, T] = compute_spectrogram(signal, fs)
+window_size = round(fs * 0.25); % 0.25s blocks inside the segment
+noverlap = round(window_size * 0.5);
+nfft = 16384; % Retains extremely high frequency resolution
+[S, F, T] = spectrogram(signal, window_size, noverlap, nfft, fs);
+P = abs(S).^2;
+end
+
+function [fundamentals, fund_powers, num_targets] = find_fundamental_targets(P, F, f_min, f_max)
+% Use MAX instead of MEAN to catch short, intermittent pulses that
+% would otherwise be washed out in the time-average.
+composite_P = max(P, [], 2);
+composite_P_dB = 10 * log10(composite_P);
+
+valid_idx = find(F >= f_min & F <= f_max);
+min_dist_bins = round(15 / (F(2) - F(1))); 
+
+% FILTER 1: Dynamic Minimum Power Floor
+% A target must be at least 5dB louder than the median noise floor, 
+% and no quieter than an absolute -90 dB to avoid tracking pure silence crackles.
+noise_floor_dB = median(composite_P_dB(valid_idx));
+min_peak_height = max(noise_floor_dB + 5.0, -90.0);
+
+[peaks_dB, peak_locs] = findpeaks(composite_P_dB(valid_idx), ...
+    'MinPeakProminence', 3.0, ... 
+    'MinPeakHeight', min_peak_height, ...
+    'MinPeakDistance', min_dist_bins);
+    
+raw_freqs = F(valid_idx(peak_locs));
+
+fundamentals = [];
+fund_powers = [];
+tolerance = 5.0; % Allowed drift/smear in harmonic math
+
+[raw_freqs, sort_idx] = sort(raw_freqs);
+peaks_dB = peaks_dB(sort_idx);
+
+for i = 1:length(raw_freqs)
+    curr_f = raw_freqs(i);
+    curr_db = peaks_dB(i);
+    is_harmonic = false;
+    
+    for j = 1:length(fundamentals)
+        fund = fundamentals(j);
+        ratio = curr_f / fund;
+        
+        % Check integer, half, and third harmonics
+        int_ratio = round(ratio);
+        half_ratio = round(ratio * 2) / 2;
+        third_ratio = round(ratio * 3) / 3;
+        
+        [min_diff, best_match] = min([abs(ratio - int_ratio), abs(ratio - half_ratio), abs(ratio - third_ratio)]);
+        
+        % No amplitude check here! We filter purely on math because
+        % multipath often causes harmonics to be louder than the fundamental.
+        if (min_diff * fund) < tolerance
+            is_harmonic = true;
+            ratio_str = '';
+            if best_match == 1, ratio_str = sprintf('%.0fx', int_ratio); end
+            if best_match == 2, ratio_str = sprintf('%.1fx', half_ratio); end
+            if best_match == 3, ratio_str = sprintf('%.2fx', third_ratio); end
+            
+            % Un-comment this if you want to see exactly which harmonics are being hidden
+            % fprintf('  -> Discarded %.2f Hz (Identified as %s harmonic of %.2f Hz)\n', curr_f, ratio_str, fund);
+            break;
+        end
+    end
+    
+    if ~is_harmonic
+        fundamentals = [fundamentals, curr_f];
+        fund_powers = [fund_powers, curr_db];
+    end
+end
+
+num_targets = length(fundamentals);
+
+
+end
+
+function dets = track_and_extract_features(P, F, T, target_freqs, rel_intensities, start_sec, end_sec)
+track_margin = 25;
+dt = T(2) - T(1);
+track_fs = 1 / dt;
+
+dets = []; % Start with empty array
+
+for i = 1:length(target_freqs)
+    target_f = target_freqs(i);
+    
+    track_idx = find(F >= (target_f - track_margin) & F <= (target_f + track_margin));
+    
+    [track_power, local_max_idx] = max(P(track_idx, :), [], 1); 
+    global_max_idx = track_idx(local_max_idx);
+    raw_track = F(global_max_idx);
+    
+    % FILTER 2: Sustained Activity Check (Transient Filter)
+    track_power_dB = 10 * log10(track_power);
+    p95_dB = prctile(track_power_dB, 95); 
+    p10_dB = prctile(track_power_dB, 10); 
+    
+    if (p95_dB - p10_dB) < 3.0
+        pct_active = 100.0;
+    else
+        active_thresh_dB = p10_dB + ((p95_dB - p10_dB) * 0.4); 
+        pct_active = (sum(track_power_dB > active_thresh_dB) / length(T)) * 100;
+    end
+    
+    % If the signal exists for less than 5% of this block, discard it as a wave crash or transient.
+    if pct_active < 5.0
+        fprintf('  -> Dropped %.2f Hz (Transient: Active only %.1f%% of block)\n', target_f, pct_active);
+        continue;
+    end
+    
+    smooth_track = medfilt1(raw_track, 50);
+    center_f = median(smooth_track);
+    delta_f = prctile(abs(smooth_track - center_f), 95);
+    
+    mod_signal = smooth_track - center_f;
+    N = length(mod_signal);
+    mod_fft = abs(fft(mod_signal));
+    half_idx = floor(N/2);
+    mod_fft = mod_fft(1:half_idx);
+    mod_freqs = (0:half_idx-1) * (track_fs / N);
+    
+    [~, mod_peak_idx] = max(mod_fft(2:end));
+    f_m = mod_freqs(mod_peak_idx + 1);
+    
+    carson_bw = 2 * (delta_f + f_m);
+    
+    % Populate database record for valid, sustained targets
+    new_det = struct('base_f', target_f, 'center_f', center_f, 'df', delta_f, ...
+                     'fm', f_m, 'bw', carson_bw, 'rel_int', rel_intensities(i), ...
+                     'pct_active', pct_active, 'start_sec', start_sec, 'end_sec', end_sec);
+    dets = [dets; new_det];
+    
+    fprintf('  [Target] Base: %6.2f Hz | BW: %6.2f Hz (df: %5.2f, fm: %4.2f) | Active: %5.1f%% | Int: %6.2f dB\n', ...
+        center_f, carson_bw, delta_f, f_m, pct_active, rel_intensities(i));
+end
+end
