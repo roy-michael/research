@@ -1,5 +1,6 @@
 import sys
 import os
+import argparse
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'analysis')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'plotting')))
@@ -13,6 +14,7 @@ import seaborn as sns
 from scipy.io import wavfile
 from scipy.signal import butter, sosfiltfilt
 import matplotlib.mlab as mlab
+from config import get_output_dir
 
 def butter_bandpass(lowcut, highcut, fs, order=5):
     nyq = 0.5 * fs
@@ -27,15 +29,16 @@ def butter_bandpass_filter(data, lowcut, highcut, fs, order=9):
     return y
 
 def load_and_process_dataset(dataset_dir, dataset_name):
-    print(f"Loading {dataset_name}...")
+    print(f"Loading {dataset_name} in {dataset_dir}...")
     search_pattern = os.path.join(dataset_dir, '*.wav')
     files = sorted(glob.glob(search_pattern))
     if not files:
+        print(f"No files found for {dataset_name}.")
         return None, None
     
     fs = None
     all_filtered = []
-    for f in files[:20]: # limit to first 20 files for performance
+    for f in files[:20]: # Limit to first 20 files for performance
         try:
             sr, data = wavfile.read(f)
             if data.size == 0:
@@ -44,8 +47,9 @@ def load_and_process_dataset(dataset_dir, dataset_name):
                 fs = sr
             if len(data.shape) > 1:
                 data = data.mean(axis=1)
-            filtered = butter_bandpass_filter(data, 400.0, 1200.0, fs, order=5)
-            all_filtered.append(filtered[::32])
+            # Filter from 20 to 1500 Hz
+            filtered = butter_bandpass_filter(data, 20.0, 1500.0, fs, order=5)
+            all_filtered.append(filtered[::32]) # Downsample by 32
         except Exception as e:
             print(f"Error reading {f}: {e}")
             
@@ -57,22 +61,33 @@ def load_and_process_dataset(dataset_dir, dataset_name):
     return concatenated, new_fs
 
 def main():
-    base_dir = r"D:\RoyStudies\Recordings\Croatia\Ocean Sonics"
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_dir = os.path.abspath(os.path.join(script_dir, "..", "..", "output", "croatia"))
-    os.makedirs(output_dir, exist_ok=True)
+    parser = argparse.ArgumentParser(description="Visualize amplitude stability.")
+    parser.add_argument("--dataset-name", required=True, help="Global name for output folder (e.g. 'garda')")
+    parser.add_argument("--subsets", nargs='+', required=True, help="List of subset name and path pairs (e.g. Shallow_Petrol C:/path/...)")
+    parser.add_argument("--freqs", nargs='+', type=float, required=True, help="Target frequencies to analyze")
     
-    datasets = ['2307_free', '2407_1_600m', '2407_2_snake', '2507_1_1k', '2507_2_joint']
-    target_freqs = [497.0, 994.0, 1491.0]
+    args = parser.parse_args()
     
-    cv_data = [] # to store CV values for Bar Chart
+    # Parse subsets
+    if len(args.subsets) % 2 != 0:
+        print("Error: --subsets must be provided as name path pairs.")
+        sys.exit(1)
+        
+    datasets = {}
+    for i in range(0, len(args.subsets), 2):
+        datasets[args.subsets[i]] = args.subsets[i+1]
+        
+    target_freqs = args.freqs
+    output_dir = get_output_dir(args.dataset_name)
     
-    for ds in datasets:
-        dataset_dir = os.path.join(base_dir, ds)
-        if not os.path.exists(dataset_dir):
+    cv_data = [] # Store CV values for Grouped Bar Chart
+    
+    for ds_name, ds_dir in datasets.items():
+        if not os.path.exists(ds_dir):
+            print(f"Directory not found: {ds_dir}")
             continue
             
-        data_signal, fs = load_and_process_dataset(dataset_dir, ds)
+        data_signal, fs = load_and_process_dataset(ds_dir, ds_name)
         if data_signal is None:
             continue
             
@@ -81,52 +96,48 @@ def main():
         noverlap = int(nfft * 0.75)
         pxx, freqs, bins = mlab.specgram(data_signal, NFFT=nfft, Fs=fs, noverlap=noverlap, mode='psd')
         
-        # Get amplitudes for targets
         harmonics_amp_db = {}
         harmonics_amp_lin = {}
         
         for tf in target_freqs:
             idx = np.argmin(np.abs(freqs - tf))
-            actual_f = freqs[idx]
             amp_lin = np.sqrt(pxx[idx, :])
             amp_db = 10 * np.log10(pxx[idx, :] + 1e-12)
             
             harmonics_amp_lin[tf] = amp_lin
             harmonics_amp_db[tf] = amp_db
             
-            # Calculate CV
             mean_lin = np.mean(amp_lin)
             std_lin = np.std(amp_lin)
             cv = std_lin / mean_lin if mean_lin > 0 else 0
             cv_data.append({
-                'Dataset': ds,
+                'Dataset': ds_name,
                 'Harmonic': f"{tf} Hz",
                 'CV': cv,
                 'Mean_dB': np.mean(amp_db),
                 'Std_dB': np.std(amp_db)
             })
             
-        # --- Option 1: Violin Plot (Amplitude Spread in dB) ---
+        # --- Option 1: Violin Plot ---
         plt.figure(figsize=(10, 6))
         df_violin = pd.DataFrame({f"{tf} Hz": harmonics_amp_db[tf] for tf in target_freqs})
         sns.violinplot(data=df_violin, palette="muted", inner="quartile")
-        plt.title(f"Option 1: Amplitude Spread (dB) Violin Plot\nDataset: {ds}", fontsize=14, fontweight='bold')
+        plt.title(f"Amplitude Spread (dB) Violin Plot\nDataset: {ds_name}", fontsize=14, fontweight='bold')
         plt.xlabel("Harmonic Frequency", fontsize=12)
         plt.ylabel("Amplitude (dB)", fontsize=12)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        violin_path = os.path.join(output_dir, f"stability_option1_violin_{ds}.png")
+        violin_path = output_dir / f"{args.dataset_name}_stability_violin_{ds_name}.png"
         plt.savefig(violin_path, dpi=300)
         plt.close()
         
-        # --- Option 2: Time-Series with rolling standard deviation envelope ---
+        # --- Option 2: Time-Series with rolling std ---
         plt.figure(figsize=(12, 6))
         time_seconds = bins
-        window = 100 # rolling window for smoothing
+        window = 100
         
         for tf in target_freqs:
             y = harmonics_amp_db[tf]
-            # Smooth using pandas rolling
             s = pd.Series(y)
             roll_mean = s.rolling(window, center=True).mean()
             roll_std = s.rolling(window, center=True).std()
@@ -135,32 +146,32 @@ def main():
             color = p[0].get_color()
             plt.fill_between(time_seconds, roll_mean - roll_std, roll_mean + roll_std, color=color, alpha=0.2, label=f"{tf} Hz ±1 std")
             
-        plt.title(f"Option 2: Amplitude Time-Series with Rolling Std Envelope\nDataset: {ds} (Window={window})", fontsize=14, fontweight='bold')
+        plt.title(f"Amplitude Time-Series with Rolling Std Envelope\nDataset: {ds_name} (Window={window})", fontsize=14, fontweight='bold')
         plt.xlabel("Time (seconds)", fontsize=12)
         plt.ylabel("Amplitude (dB)", fontsize=12)
         plt.legend(loc='upper right')
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        ts_path = os.path.join(output_dir, f"stability_option2_timeseries_{ds}.png")
+        ts_path = output_dir / f"{args.dataset_name}_stability_timeseries_{ds_name}.png"
         plt.savefig(ts_path, dpi=300)
         plt.close()
         
-        print(f"Generated Option 1 and Option 2 plots for {ds}.")
+        print(f"Generated Violin & Time-Series plots for {ds_name}.")
         
-    # --- Option 3: Coefficient of Variation (CV) Bar Chart ---
+    # --- Option 3: CV Bar Chart ---
     if cv_data:
         df_cv = pd.DataFrame(cv_data)
         plt.figure(figsize=(12, 7))
         sns.barplot(data=df_cv, x='Dataset', y='CV', hue='Harmonic', palette='viridis')
-        plt.title("Option 3: Amplitude Coefficient of Variation (CV) Comparison\nLower CV = Higher Stability", fontsize=14, fontweight='bold')
+        plt.title(f"{args.dataset_name.capitalize()} Amplitude Coefficient of Variation (CV)\nLower CV = Higher Stability", fontsize=14, fontweight='bold')
         plt.xlabel("Dataset", fontsize=12)
         plt.ylabel("Coefficient of Variation (std / mean)", fontsize=12)
         plt.grid(True, axis='y', alpha=0.3)
         plt.tight_layout()
-        cv_path = os.path.join(output_dir, "stability_option3_cv_comparison.png")
+        cv_path = output_dir / f"{args.dataset_name}_stability_cv_comparison.png"
         plt.savefig(cv_path, dpi=300)
         plt.close()
-        print(f"Generated Option 3 plot to: {cv_path}")
+        print(f"Generated CV plot to: {cv_path}")
 
 if __name__ == '__main__':
     main()
