@@ -111,6 +111,14 @@ The comparison below overlays the continuous probability profiles of $J_f$ and $
 
 ---
 
+## Dominant Signal Bandwidth via Envelope Intersections
+
+To further quantify the spectral concentration of the dominant signals across distinct operational profiles, the bandwidth was measured using the envelope intersection method (the frequency range where the high-resolution Welch PSD intersects its local moving average noise floor envelope). 
+
+Using representative samples:
+* **AUV Dataset (Straight Line Leg 1):** The dominant signal peak was located at $445.31\text{ Hz}$. The lower envelope intersection occurred at $347.66\text{ Hz}$ and the upper intersection at $484.38\text{ Hz}$, yielding a broad dominant signal bandwidth of **$136.72\text{ Hz}$**. This wider bandwidth is consistent with the broadband noise and structural vibrations typical of AUV propulsion.
+* **Hear My Ship Dataset (Tour Boat):** The dominant signal peak was located at $151.61\text{ Hz}$. The lower envelope intersection occurred at $150.15\text{ Hz}$ and the upper intersection at $152.34\text{ Hz}$, yielding a remarkably narrow dominant signal bandwidth of **$2.20\text{ Hz}$**. This highly localized spectral peak confirms the stable, delta-like frequency signature produced by steady-state commercial vessel operations.
+
 ### Related Dedicated Reports
 * [Hear My Ship Fairness Report](file:///d:/dev/research/research/reports/hear_my_ship_jains_fairness_report.md)
 * [Croatia, Garda & AUV Fairness Report](file:///d:/dev/research/research/reports/cga_jains_fairness_report.md)
