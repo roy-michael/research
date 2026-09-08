@@ -105,8 +105,12 @@ disp('Execution complete.');
 % --- Helper Functions ---
 % =========================================================================
 
+% -------------------------------------------------------------------------
+% Core Audio Processing
+% -------------------------------------------------------------------------
+
 function [all_bws, all_fairness, all_bws_hilbert, all_fairness_hilbert] = process_audio_files(file_paths, sr_target, samples_needed, slice_len, win, min_freq, max_freq, fairness_win)
-% Processes a list of audio files and extracts bandwidth and fairness metrics.
+% High-level loop to process multiple audio files and aggregate bandwidth and fairness metrics.
 all_bws = [];
 all_fairness = [];
 all_bws_hilbert = [];
@@ -132,52 +136,8 @@ for k = 1:length(file_paths)
 end
 end
 
-function plot_distribution(data_scooter, data_ship, bw, title_str, xlabel_str)
-% Helper to plot KDE distributions consistently
-[f_scooter, xi_scooter] = ksdensity(data_scooter, 'Bandwidth', bw);
-[f_ship, xi_ship] = ksdensity(data_ship, 'Bandwidth', bw);
-
-fill(xi_scooter, f_scooter, [0.2 0.6 0.8], 'FaceAlpha', 0.5, 'EdgeColor', [0.1 0.4 0.6], 'LineWidth', 2); hold on;
-fill(xi_ship, f_ship, [0.8 0.3 0.3], 'FaceAlpha', 0.4, 'EdgeColor', [0.6 0.2 0.2], 'LineWidth', 2);
-
-title(title_str);
-xlabel(xlabel_str);
-ylabel('Density Probability');
-legend('Scooter', 'Motor Boat', 'Location', 'best');
-grid on; box on;
-end
-
-function data_out = resample_full(data, sr_orig, sr_target)
-% Resamples and converts to mono if necessary
-if sr_orig > sr_target
-    [P, Q] = rat(sr_target / sr_orig);
-    data = resample(data, P, Q);
-end
-if size(data, 2) > 1
-    data = data(:, 1);
-end
-data_out = data;
-end
-
-function rolling_fairness = compute_successive_jains(x, window_size)
-% Computes rolling Jain's fairness index
-x = x(~isnan(x) & x > 0);
-if length(x) < window_size
-    rolling_fairness = [];
-    return;
-end
-
-num_windows = length(x) - window_size + 1;
-rolling_fairness = zeros(num_windows, 1);
-
-for i = 1:num_windows
-    win_vals = x(i:i+window_size-1);
-    rolling_fairness(i) = (sum(win_vals)^2) / (length(win_vals) * sum(win_vals.^2));
-end
-end
-
 function [bws, bws_hilbert] = process_vessel_audio_tracked(data, sr, slice_len, win, min_freq, max_freq)
-% Analyzes audio in slices to track peak bandwidth of a dominant frequency
+% Analyzes an audio file in sequential time slices to track and extract the peak bandwidth of the dominant frequency.
 num_slices = floor(length(data) / slice_len);
 if num_slices < 1; bws = []; bws_hilbert = []; return; end
 
@@ -219,8 +179,24 @@ for i = 1:num_slices
 end
 end
 
+function data_out = resample_full(data, sr_orig, sr_target)
+% Utility to resample audio to a target sampling rate and ensure mono output.
+if sr_orig > sr_target
+    [P, Q] = rat(sr_target / sr_orig);
+    data = resample(data, P, Q);
+end
+if size(data, 2) > 1
+    data = data(:, 1);
+end
+data_out = data;
+end
+
+% -------------------------------------------------------------------------
+% Bandwidth & Frequency Extraction
+% -------------------------------------------------------------------------
+
 function [dominantFreqs, maxPowers] = find_dominant_freq_in_fft(fft_db, faxis, min_freq, max_freq)
-% Locates the dominant frequency peaks within a given frequency range
+% Identifies the most prominent frequency peaks in a spectrum using a moving median baseline detrending.
 pos_mask = (faxis >= min_freq) & (faxis <= max_freq);
 pos_faxis = faxis(pos_mask);
 pos_fft_db = fft_db(pos_mask);
@@ -249,7 +225,7 @@ maxPowers = pos_fft_db(locs(sort_idx));
 end
 
 function [bandwidth, f_segment, fft_segment, lobe_shape, local_noise_floor, threshold_db, l_idx, r_idx] = get_peak_bandwidth(peak_freq, spec_db, f_pos)
-% Calculates bandwidth by finding the width of the peak based on prominence
+% Extracts the bandwidth of a specific frequency peak using a smoothed lobe and a flat median noise floor threshold.
 [~, peak_idx] = min(abs(f_pos - peak_freq));
 
 df = f_pos(2) - f_pos(1);
@@ -290,7 +266,7 @@ bandwidth = abs(f_segment(r_idx) - f_segment(l_idx));
 end
 
 function [bandwidth, f_segment, fft_segment, env_up, env_lo, threshold_curve, l_idx, r_idx] = get_peak_bandwidth_hilbert(peak_freq, spec_db, f_pos)
-% Calculates bandwidth using a Hilbert-based lower envelope
+% Extracts the bandwidth of a specific frequency peak using an analytic Hilbert envelope and dynamic parallel thresholding.
 [~, peak_idx] = min(abs(f_pos - peak_freq));
 
 df = f_pos(2) - f_pos(1);
@@ -331,8 +307,48 @@ end
 bandwidth = abs(f_segment(r_idx) - f_segment(l_idx));
 end
 
+% -------------------------------------------------------------------------
+% Fairness Metrics
+% -------------------------------------------------------------------------
+
+function rolling_fairness = compute_successive_jains(x, window_size)
+% Calculates the rolling Jain's Fairness Index over a sliding window of sequential bandwidth measurements.
+x = x(~isnan(x) & x > 0);
+if length(x) < window_size
+    rolling_fairness = [];
+    return;
+end
+
+num_windows = length(x) - window_size + 1;
+rolling_fairness = zeros(num_windows, 1);
+
+for i = 1:num_windows
+    win_vals = x(i:i+window_size-1);
+    rolling_fairness(i) = (sum(win_vals)^2) / (length(win_vals) * sum(win_vals.^2));
+end
+end
+
+% -------------------------------------------------------------------------
+% Visualization & Plotting
+% -------------------------------------------------------------------------
+
+function plot_distribution(data_scooter, data_ship, bw, title_str, xlabel_str)
+% Helper to plot comparative Kernel Density Estimation (KDE) distributions for datasets.
+[f_scooter, xi_scooter] = ksdensity(data_scooter, 'Bandwidth', bw);
+[f_ship, xi_ship] = ksdensity(data_ship, 'Bandwidth', bw);
+
+fill(xi_scooter, f_scooter, [0.2 0.6 0.8], 'FaceAlpha', 0.5, 'EdgeColor', [0.1 0.4 0.6], 'LineWidth', 2); hold on;
+fill(xi_ship, f_ship, [0.8 0.3 0.3], 'FaceAlpha', 0.4, 'EdgeColor', [0.6 0.2 0.2], 'LineWidth', 2);
+
+title(title_str);
+xlabel(xlabel_str);
+ylabel('Density Probability');
+legend('Scooter', 'Motor Boat', 'Location', 'best');
+grid on; box on;
+end
+
 function plot_example_bandwidth(file_path, sr_target, samples_needed, slice_len, win, min_freq, max_freq, title_prefix)
-% Reads the file, finds the slice with the highest target frequency energy, and plots its bandwidth calculation.
+% Plots a detailed visual diagnostic of the bandwidth extraction (both Hilbert and Median) for a single example slice.
 
 [data, sr] = audioread(file_path);
 data = resample_full(data, sr, sr_target);

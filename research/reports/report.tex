@@ -290,14 +290,14 @@ Transitioning from theoretical physics to practical application, this section ou
 % Loop Inner Nodes
 \node (c1) [purplebox, below=2cm of buffer] {2a. SELECT NEXT FREQUENCY $f_{c,i}$};
 \node (c2) [purplebox, below=of c1] {2b. DETERMINE BANDWIDTH\\(based on buffering)};
-\node (c3) [purplebox, below=of c2] {2c. CALCULATE CHANNEL\\PARAMETERS $H_{i,j}$ ($j=1..J$)};
+\node (c3) [purplebox, below=of c2] {2c. CALCULATE BANDWIDTH\\PARAMETERS $H_{i,j}$ ($j=1..J$)};
 
 % Loop Container Box
 \begin{scope}[on background layer]
     \node (loopgroup) [purplecontainer, fit=(c1) (c2) (c3), label={[font=\sffamily\bfseries, text=violet!70!black]above:Iterate over frequency channels ($i=1..I$)}] {};
 \end{scope}
 
-\node (matrix) [bluebox, below=1.5cm of loopgroup] {CHANNEL PARAMETER MATRIX $H_{i,j}$\\Data for $I$ frequencies, $J$ buffers};
+\node (matrix) [bluebox, below=1.5cm of loopgroup] {BANDWIDTH PARAMETER MATRIX $H_{i,j}$\\Data for $I$ frequencies, $J$ buffers};
 
 % Split Output Nodes
 \node (stability) [bluebox, below left=1.2cm and -1.5cm of matrix] {3a. CHECK STABILITY};
