@@ -1,0 +1,7 @@
+Hear My Ship - Aux Vessels Bandwidth: 2.93 Hz (Peak at 40.28 Hz, Lower: 38.09 Hz, Upper: 41.02 Hz)
+Hear My Ship - Ferries Bandwidth: 2.20 Hz (Peak at 19.04 Hz, Lower: 17.58 Hz, Upper: 19.78 Hz)
+Hear My Ship - Fishing Boats Bandwidth: 9.52 Hz (Peak at 84.23 Hz, Lower: 77.64 Hz, Upper: 87.16 Hz)
+Hear My Ship - Motor Boats Bandwidth: 12.45 Hz (Peak at 168.46 Hz, Lower: 158.20 Hz, Upper: 170.65 Hz)
+Hear My Ship - Sail Boat (with motor) Bandwidth: 35.16 Hz (Peak at 364.75 Hz, Lower: 355.22 Hz, Upper: 390.38 Hz)
+Hear My Ship - Tour Boat Bandwidth: 3.66 Hz (Peak at 75.44 Hz, Lower: 73.24 Hz, Upper: 76.90 Hz)
+Hear My Ship - Yachts Bandwidth: 2.93 Hz (Peak at 68.12 Hz, Lower: 66.65 Hz, Upper: 69.58 Hz)
