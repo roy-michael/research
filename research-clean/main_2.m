@@ -1,13 +1,14 @@
+close;clc;clear all;
 
 files = [
     % "C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2407_2_snake\merged_output.wav"
-    "C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2407_1_600m\merged_output.wav"
+    "D:\RoyStudies\Recordings\Croatia\Ocean Sonics\merged\merged_2407_1_600m.wav"
     % "C:\Users\Roy\Recordings\hear_my_ship\V1\Motor Boats\Motorboat_08.08.23_142223_20secCPA.wav"
     % "C:\\Users\\Roy\\Recordings\\hear_my_ship\\V1\\Motor Boats\\Motorboat_08.08.23_132757_20secCPA.wav"
     ];
 
-[data_scooter, sr_scooter] = audioread("C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2407_1_600m\RBW6737_20250724_093000.wav");
-[data_ship, sr_ship] = audioread("C:\Users\Roy\Recordings\hear_my_ship\V1\Motor Boats\Motorboat_08.08.23_142223_20secCPA.wav");
+[data_scooter, sr_scooter] = audioread("D:\RoyStudies\Recordings\Croatia\Ocean Sonics\2407_1_600m\RBW6737_20250724_093000.wav");
+[data_ship, sr_ship] = audioread("D:\RoyStudies\Recordings\hear-my-ship\V1\Motor Boats\Motorboat_08.08.23_142223_20secCPA.wav");
 
 
 duration = 10;
@@ -16,15 +17,19 @@ num_samples = duration * sr_ship;
 data_scooter = resample_and_split(data_scooter, sr_scooter, sr_ship, duration);
 data_ship = resample_and_split(data_ship, sr_ship, sr_ship, duration);
 
-plot_3(data_scooter, sr_ship)
-plot_3(data_ship, sr_ship)
+plot_1(data_scooter, sr_ship, 'Scooter');
+plot_welch(data_scooter, sr_scooter, "Scooter");
+
+plot_1(data_ship, sr_ship, 'Motor Boat');
+plot_welch(data_ship, sr_ship, 'Motor Boat');
+
 
 
 % read_and_process(data_scooter, sr_ship, 'Scooter');
 % read_and_process(data_ship, sr_ship, 'Motor Boat');
 
 
-function read_and_process(data, sr, name)
+function plot_welch(data, sr, name)
     nperseg = 1024 * 16;
     window = hann(nperseg); 
     noverlap = nperseg / 2;
@@ -56,6 +61,26 @@ function result = resample_and_split(data, sr_orig, sr_target, duration)
     num_samples = duration * sr_target;
 
     result = data(1:num_samples, :);
+end
+
+function plot_1(data, sr, name)
+    data_mag = fftshift(abs(fft(data)));
+    
+    % Ensure data is a column vector so Faxis length matches perfectly
+    if size(data_mag, 2) > 1, data_mag = data_mag'; end
+    
+    Faxis = linspace(-sr / 2, sr / 2, length(data));
+    
+    % 4. Plot both lines cleanly on the same figure using Faxis
+    figure;
+    plot(Faxis, data_mag, 'Color', [0.7 0.7 0.7]); % Draw spectrum in grey
+    hold on;
+    % plot(Faxis, spectral_envelope_true, 'r', 'LineWidth', 2); % Envelope in red
+    
+    title("Magnitude Spectrum & Spectral Envelope (" + name + ")");    
+    xlabel('Frequency (Hz)');
+    ylabel('Magnitude');
+    xlim([-sr/2, sr/2]);
 end
 
 function plot_2(data, sr)
