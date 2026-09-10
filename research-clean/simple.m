@@ -1,7 +1,7 @@
 clear;clc;close all;
 
-[data_ship, sr_ship] = audioread("D:\RoyStudies\Recordings\hear-my-ship\V1\Motor Boats\Motorboat_08.08.23_142223_20secCPA.wav");
-[data_scooter, sr_scooter] = audioread("D:\RoyStudies\Recordings\Croatia\Ocean Sonics\2407_1_600m\RBW6737_20250724_093000.wav");
+[data_ship, sr_ship] = audioread("C:\Users\Roy\Recordings\hear_my_ship\V1\Motor Boats\Motorboat_08.08.23_142223_20secCPA.wav");
+[data_scooter, sr_scooter] = audioread("C:\Users\Roy\Recordings\Croatia\Ocean Sonics\2407_1_600m\RBW6737_20250724_093000.wav");
 
 sr = min(sr_scooter, sr_ship);
 len_sec = length(data_ship)/sr_ship;

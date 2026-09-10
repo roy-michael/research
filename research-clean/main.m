@@ -13,7 +13,7 @@ files = [
 [P, Q] = rat(sr_ship / sr_scooter);
 buffer_resampled = resample(data_scooter, P, Q);
 
-duration = 10;
+duration = 20;
 num_samples = duration * sr_ship;
 
 buffer_resampled = buffer_resampled(1:num_samples, :);
@@ -24,22 +24,40 @@ read_and_process(data_ship, sr_ship, 'Motor Boat');
 
 
 function read_and_process(data, sr, name)
-    nperseg = 1024 * 16;
-    window = hann(nperseg); 
-    noverlap = nperseg / 2;
-    
-    [psd, freqs] = pwelch(data, window, noverlap, nperseg, sr);
-    
-    figure('Position', [100, 100, 800, 480]);
-    % semilogy(freqs, psd, 'Color', 'blue', 'LineWidth', 1.5);
-    plot(freqs, psd, 'Color', 'blue', 'LineWidth', 1.5);
+nperseg = 1024 * 32; % Increased window size for better true frequency resolution
+window = hann(nperseg);
+noverlap = round(nperseg * 0.9); % Round to integer
+nfft = nperseg * 4; % Zero-padding for a much finer frequency grid
 
-    title("Power Spectral Density (" + name + ")");
-    xlabel("Frequency (Hz)");
-    ylabel("Power/Frequency (Density)");
-    
-    grid on;
-    grid minor;
-    
-    xlim([0, sr / 2]); 
+[psd, freqs] = pwelch(data, window, noverlap, nfft, sr);
+
+% Truncate to 0-2000 Hz
+idx = freqs <= 2000;
+freqs = freqs(idx);
+psd = psd(idx);
+
+figure('Position', [100, 100, 800, 480]);
+plot(freqs, psd, 'Color', 'blue', 'LineWidth', 1.5);
+
+title("Power Spectral Density (" + name + ")");
+xlabel("Frequency (Hz)");
+ylabel("Power/Frequency (Density)");
+
+grid on;
+grid minor;
+xlim([0, 2000]);
+
+% Get spectrogram data and truncate
+[s, f, t] = spectrogram(data, window, noverlap, nfft, sr);
+idx_s = f <= 2000;
+s = s(idx_s, :);
+f = f(idx_s);
+
+figure('Position', [150, 150, 800, 480]);
+imagesc(t, f, 10*log10(abs(s).^2));
+axis xy; % Ensure y-axis goes from bottom to top
+title("Spectrogram (" + name + ")");
+xlabel("Time (s)");
+ylabel("Frequency (Hz)");
+colormap jet;
 end
