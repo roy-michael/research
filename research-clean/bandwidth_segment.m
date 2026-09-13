@@ -1,8 +1,12 @@
 clear; clc; close all;
 
 % --- 1. Load Audio Files ---
-[data_ship, sr_ship] = audioread("D:\RoyStudies\Recordings\hear-my-ship\V1\Motor Boats\Motorboat_08.08.23_142223_20secCPA.wav");
-[data_scooter, sr_scooter] = audioread("D:\RoyStudies\Recordings\Croatia\Ocean Sonics\2407_1_600m\RBW6737_20250724_093000.wav");
+base_dir = 'D:\RoyStudies\Recordings';
+dir_hear_my_ship = fullfile(base_dir, 'hear_my_ship', 'V1', 'Motor Boats');
+dir_croatia      = fullfile(base_dir, 'Croatia', 'Ocean Sonics', '2407_1_600m');
+
+[data_ship, sr_ship] = audioread(fullfile(dir_hear_my_ship, "Motorboat_08.08.23_142223_20secCPA.wav"));
+[data_scooter, sr_scooter] = audioread(fullfile(dir_croatia, "RBW6737_20250724_093000.wav"));
 
 % --- 2. Parameters ---
 sr = min(sr_scooter, sr_ship);

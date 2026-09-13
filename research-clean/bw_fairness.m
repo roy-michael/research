@@ -6,7 +6,7 @@ clear; clc; close all;
 
 
 % File Paths
-recordingsBasePath = "C:\Users\Roy\Recordings";
+recordingsBasePath = 'D:\RoyStudies\Recordings';
 
 SCOOTER_FILES = {
     fullfile(recordingsBasePath, "Croatia", "Ocean Sonics", "2407_1_600m", ...
