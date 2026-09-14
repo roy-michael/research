@@ -481,28 +481,33 @@ if excess_peak <= 0
     return;
 end
 
-out.found = true;
-out.f_segment = f_segment;
-out.mag_segment = mag_segment;
-out.noise_floor = noise_floor;
-out.main_f = pk_f;
-out.main_mag = pk_mag;
-
-% Search left for noise floor intersection on RAW magnitude
-nf_left_cross = find(mag_segment(1:pk_idx) <= noise_floor, 1, 'last');
-if isempty(nf_left_cross), [~, nf_left_cross] = min(mag_segment(1:pk_idx)); end
-
-% Search right for noise floor intersection on RAW magnitude
-nf_right_rel = find(mag_segment(pk_idx:end) <= noise_floor, 1, 'first');
-if isempty(nf_right_rel), [~, nf_right_rel] = min(mag_segment(pk_idx:end)); end
-nf_right_cross = pk_idx + nf_right_rel - 1;
-
-f_left = interpolate_crossing(f_segment, mag_segment, nf_left_cross, nf_left_cross+1, noise_floor, 'left');
-f_right = interpolate_crossing(f_segment, mag_segment, nf_right_cross-1, nf_right_cross, noise_floor, 'right');
-
-out.l_freq = f_left;
-out.r_freq = f_right;
-out.main_bw = f_right - f_left;
+    out.found = true;
+    out.f_segment = f_segment;
+    out.mag_segment = mag_segment;
+    out.noise_floor = noise_floor;
+    out.main_f = pk_f;
+    out.main_mag = pk_mag;
+    
+    % Compute dynamic threshold bounded by noise floor
+    drop_factor_linear = 10^(threshold_db / 20);
+    target_mag = max(noise_floor, pk_mag * drop_factor_linear);
+    
+    % Search left for target magnitude intersection on RAW magnitude
+    nf_left_cross = find(mag_segment(1:pk_idx) <= target_mag, 1, 'last');
+    if isempty(nf_left_cross), [~, nf_left_cross] = min(mag_segment(1:pk_idx)); end
+    
+    % Search right for target magnitude intersection on RAW magnitude
+    nf_right_rel = find(mag_segment(pk_idx:end) <= target_mag, 1, 'first');
+    if isempty(nf_right_rel), [~, nf_right_rel] = min(mag_segment(pk_idx:end)); end
+    nf_right_cross = pk_idx + nf_right_rel - 1;
+    
+    f_left = interpolate_crossing(f_segment, mag_segment, nf_left_cross, nf_left_cross+1, target_mag, 'left');
+    f_right = interpolate_crossing(f_segment, mag_segment, nf_right_cross-1, nf_right_cross, target_mag, 'right');
+    
+    out.l_freq = f_left;
+    out.r_freq = f_right;
+    out.target_mag = target_mag;
+    out.main_bw = f_right - f_left;
 end
 
 function crossing_frequency = interpolate_crossing(f, y, i1, i2, level, side)
@@ -629,12 +634,15 @@ for k = 1:num_data
         yline(ax, 20*log10(h.noise_floor+eps), 'Color', [1.00 0.78 0.25], 'LineWidth', 1.4, 'LineStyle', ':', ...
             'DisplayName', 'Local Noise Floor');
 
+        yline(ax, 20*log10(h.target_mag+eps), 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
+            'DisplayName', 'Adaptive Intersection Threshold (-3 dB bounds)');
+
         lbl = 'Main Peak';
 
-        % Plot Base (Noise Floor) Exact Intersections
-        plot(ax, [h.l_freq, h.r_freq], 20*log10([h.noise_floor, h.noise_floor]+eps), 'd', ...
-            'MarkerFaceColor', 'none', 'MarkerEdgeColor', [1.00 0.30 0.40], 'MarkerSize', 6, ...
-            'DisplayName', sprintf('%s Base (BW = %0.1f Hz)', lbl, h.main_bw));
+        % Plot Adaptive Base Intersections
+        plot(ax, [h.l_freq, h.r_freq], 20*log10([h.target_mag, h.target_mag]+eps), 'd', ...
+            'MarkerEdgeColor', [1.0 0.2 0.2], 'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 8, ...
+            'DisplayName', sprintf('%s Base BW: %.1f Hz', lbl, h.main_bw));
 
         % Plot Peak Marker
         plot(ax, h.main_f, 20*log10(h.main_mag+eps), 'v', ...
@@ -882,6 +890,7 @@ for k = 1:num_data
     f_seg = outlier_slice.f_segment;
     mag_db = 20 * log10(outlier_slice.mag_segment + eps);
     nf_db = 20 * log10(outlier_slice.noise_floor + eps);
+    target_mag_db = 20 * log10(outlier_slice.target_mag + eps);
     
     % Plot the raw magnitude
     plot(ax, f_seg, mag_db, 'Color', [0.20 0.82 1.00], 'LineWidth', 1.2, ...
@@ -891,10 +900,14 @@ for k = 1:num_data
     yline(ax, nf_db, 'Color', [0.8 0.4 0.4], 'LineStyle', '--', 'LineWidth', 1.2, ...
         'DisplayName', 'Ambient Noise Floor');
         
+    % Plot Adaptive Threshold
+    yline(ax, target_mag_db, 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
+        'DisplayName', 'Adaptive Intersection Threshold (-3 dB bounds)');
+        
     % Markers
-    plot(ax, outlier_slice.l_freq, nf_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
+    plot(ax, outlier_slice.l_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
         'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
-    plot(ax, outlier_slice.r_freq, nf_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
+    plot(ax, outlier_slice.r_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
         'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
     
     title(ax, sprintf('%s: Outlier Slice (Dev: %.1f Hz from Mean %.1f Hz)', r.meta.name, abs(outlier_slice.main_bw - mean_bw), mean_bw), ...
