@@ -40,7 +40,7 @@ cfg.datasets = struct(...
 cfg.fs             = 48000;   % Standardized sample rate (Hz)
 cfg.dur_sec        = 20.0;    % Segment duration to analyze (s)
 cfg.df_eval        = 0.25;     % Uniform PSD evaluation resolution (Hz)
-cfg.twin_welch     = 0.050;   % Welch window length (s) -> ~20 Hz resolution
+cfg.twin_welch     = 0.50;   % Welch window length (s) -> ~20 Hz resolution
 cfg.slice_dur      = 0.500;   % Time slice for peak tracking (s) -> 2 Hz resolution
 
 % Two-Pass Split-Window (TPSW) CFAR parameters

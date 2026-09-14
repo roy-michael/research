@@ -29,7 +29,8 @@ MOTORBOAT_FILES = {
 % Processing Parameters
 SR_TARGET = 48000;              % Target sampling rate (Hz)
 SLICE_DURATION_SEC = 0.5;       % Window duration for processing (seconds)
-TARGET_DURATION_SEC = 60;       % Maximum audio length to process per file (seconds)
+ROBUST_FRAME_DURATION_SEC = 0.25; % Overlapping frame length within each processing window
+TARGET_DURATION_SEC = 20;       % Maximum audio length to process per file (seconds)
 FAIRNESS_WINDOW = 5;            % Window size for successive Jain's fairness
 
 % Frequency Analysis Bounds (Hz)
@@ -38,7 +39,8 @@ MOTORBOAT_FREQ_RANGE = [50, 1000];
 
 % Derived Parameters
 slice_len = floor(SR_TARGET * SLICE_DURATION_SEC);
-win_func = hann(slice_len);
+robust_frame_len = floor(SR_TARGET * ROBUST_FRAME_DURATION_SEC);
+win_func = hann(robust_frame_len);
 samples_needed = SR_TARGET * TARGET_DURATION_SEC;
 
 
@@ -47,26 +49,26 @@ samples_needed = SR_TARGET * TARGET_DURATION_SEC;
 % =========================================================================
 
 disp('Processing Scooter...');
-[scooter_bws, scooter_fairness, scooter_bws_h, scooter_fairness_h] = process_audio_files(...
+[scooter_bws, scooter_fairness] = process_audio_files(...
     SCOOTER_FILES, SR_TARGET, samples_needed, slice_len, win_func, ...
     SCOOTER_FREQ_RANGE(1), SCOOTER_FREQ_RANGE(2), FAIRNESS_WINDOW);
 
 disp('Processing Motor Boats...');
-[ship_bws, ship_fairness, ship_bws_h, ship_fairness_h] = process_audio_files(...
+[ship_bws, ship_fairness] = process_audio_files(...
     MOTORBOAT_FILES, SR_TARGET, samples_needed, slice_len, win_func, ...
     MOTORBOAT_FREQ_RANGE(1), MOTORBOAT_FREQ_RANGE(2), FAIRNESS_WINDOW);
 
 
 % =========================================================================
-% --- 3. Plotting Histograms (Median) ---
+% --- 3. Plotting Histograms (Lobe Width) ---
 % =========================================================================
 
-figure('Name', 'Bandwidth Distributions and Rolling Fairness (Median)', 'Position', [50, 50, 1100, 600]);
+figure('Name', 'Bandwidth Distributions and Rolling Fairness (Lobe Width)', 'Position', [50, 50, 1100, 600]);
 
 % Plot 1: Bandwidth Distribution
 subplot(1, 2, 1);
 plot_distribution(scooter_bws, ship_bws, 1.5, ...
-    'Comparative Bandwidth Distribution (Median)', 'Bandwidth (Hz)');
+    'Comparative Bandwidth Distribution (Lobe Width)', 'Bandwidth (Hz)');
 
 % Plot 2: Successive Fairness Distribution
 subplot(1, 2, 2);
@@ -76,28 +78,11 @@ plot_distribution(scooter_fairness, ship_fairness, 0.02, ...
 
 
 % =========================================================================
-% --- 4. Plotting Histograms (Hilbert) ---
+% =========================================================================
+% --- 4. Plotting Examples (Lower-Envelope Lobe Width) ---
 % =========================================================================
 
-figure('Name', 'Bandwidth Distributions and Rolling Fairness (Hilbert)', 'Position', [100, 100, 1100, 600]);
-
-% Plot 1: Bandwidth Distribution
-subplot(1, 2, 1);
-plot_distribution(scooter_bws_h, ship_bws_h, 1.5, ...
-    'Comparative Bandwidth Distribution (Hilbert)', 'Bandwidth (Hz)');
-
-% Plot 2: Successive Fairness Distribution
-subplot(1, 2, 2);
-plot_distribution(scooter_fairness_h, ship_fairness_h, 0.02, ...
-    sprintf('Rolling Successive Fairness (Window = %d)', FAIRNESS_WINDOW), ...
-    'Jain''s Fairness Index');
-
-
-% =========================================================================
-% --- 5. Plotting Examples (Hilbert vs Median) ---
-% =========================================================================
-
-figure('Name', 'Bandwidth Calculation Examples (Hilbert vs Median)', 'Position', [150, 150, 1100, 500]);
+figure('Name', 'Bandwidth Calculation Examples (Lower-Envelope Lobe Width)', 'Position', [150, 150, 1100, 500]);
 
 % Plot Scooter Example
 subplot(1, 2, 1);
@@ -118,12 +103,10 @@ disp('Execution complete.');
 % Core Audio Processing
 % -------------------------------------------------------------------------
 
-function [all_bws, all_fairness, all_bws_hilbert, all_fairness_hilbert] = process_audio_files(file_paths, sr_target, samples_needed, slice_len, win, min_freq, max_freq, fairness_win)
+function [all_bws, all_fairness] = process_audio_files(file_paths, sr_target, samples_needed, slice_len, win, min_freq, max_freq, fairness_win)
 % High-level loop to process multiple audio files and aggregate bandwidth and fairness metrics.
 all_bws = [];
 all_fairness = [];
-all_bws_hilbert = [];
-all_fairness_hilbert = [];
 
 for k = 1:length(file_paths)
     try
@@ -131,24 +114,23 @@ for k = 1:length(file_paths)
         data_resampled = resample_full(data, sr, sr_target);
         data_resampled = data_resampled(1:min(length(data_resampled), samples_needed));
 
-        [bws, bws_hilbert] = process_vessel_audio_tracked(data_resampled, sr_target, slice_len, win, min_freq, max_freq);
+        bws = process_vessel_audio_tracked(data_resampled, sr_target, slice_len, win, min_freq, max_freq);
         fairness = compute_successive_jains(bws, fairness_win);
-        fairness_hilbert = compute_successive_jains(bws_hilbert, fairness_win);
 
-        all_bws = [all_bws; bws];
+        % Keep the time series (including missing values) for fairness, but
+        % do not pass missing bandwidth estimates to the distribution plot.
+        all_bws = [all_bws; bws(isfinite(bws) & bws > 0)];
         all_fairness = [all_fairness; fairness];
-        all_bws_hilbert = [all_bws_hilbert; bws_hilbert];
-        all_fairness_hilbert = [all_fairness_hilbert; fairness_hilbert];
     catch ME
         fprintf('  -> Warning: Could not process file %s. Error: %s\n', file_paths{k}, ME.message);
     end
 end
 end
 
-function [bws, bws_hilbert] = process_vessel_audio_tracked(data, sr, slice_len, win, min_freq, max_freq)
+function bws = process_vessel_audio_tracked(data, sr, slice_len, win, min_freq, max_freq)
 % Analyzes an audio file in sequential time slices to track and extract the peak bandwidth of the dominant frequency.
 num_slices = floor(length(data) / slice_len);
-if num_slices < 1; bws = []; bws_hilbert = []; return; end
+if num_slices < 1; bws = []; return; end
 
 N = slice_len;
 Faxis_fft = (0:N-1) * (sr/N);
@@ -160,42 +142,71 @@ all_ffts_db = zeros(sum(pos_mask), num_slices);
 for i = 1:num_slices
     idx_start = (i-1)*slice_len + 1;
     idx_end = i*slice_len;
-    chunk = data(idx_start:idx_end) .* win;
-    chunk_fft = fft(chunk);
-    all_ffts_db(:, i) = 20 * log10(abs(chunk_fft(pos_mask)) + 1e-12);
+    chunk = data(idx_start:idx_end);
+    all_ffts_db(:, i) = robust_slice_spectrum(chunk, slice_len, win);
 end
 
 global_spec_db = median(all_ffts_db, 2);
 [global_dom_freq, ~] = find_dominant_freq_in_fft(global_spec_db, f_pos, min_freq, max_freq);
 
 if isempty(global_dom_freq)
-    bws = []; bws_hilbert = []; return;
+    bws = []; return;
 end
 
 target_freq = global_dom_freq(1);
 bws = NaN(num_slices, 1);
-bws_hilbert = NaN(num_slices, 1);
 track_tolerance = 25;
 
 for i = 1:num_slices
     chunk_db = all_ffts_db(:, i);
-    [local_freq, ~] = find_dominant_freq_in_fft(chunk_db, f_pos, target_freq - track_tolerance, target_freq + track_tolerance);
+    local_min_freq = max(min_freq, target_freq - track_tolerance);
+    local_max_freq = min(max_freq, target_freq + track_tolerance);
+    [local_freq, ~] = find_dominant_freq_in_fft(chunk_db, f_pos, local_min_freq, local_max_freq);
 
     if ~isempty(local_freq)
-        bws(i) = get_peak_bandwidth(local_freq(1), chunk_db, f_pos);
-        bws_hilbert(i) = get_peak_bandwidth_hilbert(local_freq(1), chunk_db, f_pos);
+        bws(i) = get_peak_bandwidth(local_freq(1), chunk_db, f_pos, min_freq, max_freq);
     end
 end
 end
 
-function data_out = resample_full(data, sr_orig, sr_target)
-% Utility to resample audio to a target sampling rate and ensure mono output.
-if sr_orig > sr_target
-    [P, Q] = rat(sr_target / sr_orig);
-    data = resample(data, P, Q);
+function spectrum_db = robust_slice_spectrum(chunk, nfft, frame_win)
+% Builds a robust spectrum from overlapping detrended short frames.
+% The median power spectrum suppresses one-off impulsive events in a slice.
+frame_len = numel(frame_win);
+if numel(chunk) < frame_len
+    error('The processing slice must be at least as long as the robust frame.');
 end
+
+hop_len = floor(frame_len / 2);
+frame_starts = 1:hop_len:(numel(chunk) - frame_len + 1);
+last_start = numel(chunk) - frame_len + 1;
+if frame_starts(end) ~= last_start
+    frame_starts = [frame_starts, last_start];
+end
+
+positive_bins = nfft / 2 + 1;
+frame_powers = zeros(positive_bins, numel(frame_starts));
+for j = 1:numel(frame_starts)
+    start_idx = frame_starts(j);
+    frame = chunk(start_idx:start_idx + frame_len - 1);
+    frame = detrend(frame, 'linear') .* frame_win;
+    frame_fft = fft(frame, nfft);
+    frame_powers(:, j) = abs(frame_fft(1:positive_bins)).^2;
+end
+
+spectrum_db = 10 * log10(median(frame_powers, 2) + 1e-24);
+end
+
+function data_out = resample_full(data, sr_orig, sr_target)
+% Utility to convert audio to mono and resample it to the requested rate.
+% Resampling only on downsampling leaves files recorded below sr_target on a
+% different frequency grid, despite the rest of the analysis assuming sr_target.
 if size(data, 2) > 1
-    data = data(:, 1);
+    data = mean(data, 2);
+end
+if sr_orig ~= sr_target
+    [P, Q] = rat(sr_target / sr_orig, 1e-12);
+    data = resample(data, P, Q);
 end
 data_out = data;
 end
@@ -233,87 +244,63 @@ dominantFreqs = pos_faxis(locs(sort_idx));
 maxPowers = pos_fft_db(locs(sort_idx));
 end
 
-function [bandwidth, f_segment, fft_segment, lobe_shape, local_noise_floor, threshold_db, l_idx, r_idx] = get_peak_bandwidth(peak_freq, spec_db, f_pos)
-% Extracts the bandwidth of a specific frequency peak using a smoothed lobe and a flat median noise floor threshold.
-[~, peak_idx] = min(abs(f_pos - peak_freq));
+function [bandwidth, f_segment, fft_segment, lower_envelope, threshold_curve, left_freq, right_freq] = get_peak_bandwidth(peak_freq, spec_db, f_pos, min_freq, max_freq)
+% Computes the full width at 20% of the lower-envelope-relative peak level.
+segment_mask = f_pos >= min_freq & f_pos <= max_freq;
+f_segment = f_pos(segment_mask);
+fft_segment = spec_db(segment_mask);
 
-df = f_pos(2) - f_pos(1);
-window_radius = max(10, ceil(35 / df));
+bandwidth = NaN;
+left_freq = NaN;
+right_freq = NaN;
+if numel(f_segment) < 5
+    lower_envelope = fft_segment;
+    threshold_curve = fft_segment;
+    return;
+end
 
-seg_start = max(1, peak_idx - window_radius);
-seg_end = min(length(spec_db), peak_idx + window_radius);
+[~, peak_local_idx] = min(abs(f_segment - peak_freq));
+df = f_segment(2) - f_segment(1);
+% The envelope span must exceed the lobe itself; 200 Hz avoids treating a
+% broad motorboat lobe as background.
+baseline_span = min(numel(fft_segment), max(5, 2 * ceil(100 / df) + 1));
+if mod(baseline_span, 2) == 0
+    baseline_span = baseline_span - 1;
+end
 
-f_segment = f_pos(seg_start:seg_end);
-fft_segment = spec_db(seg_start:seg_end);
+% Morphological opening forms a true lower envelope: movmin follows local
+% troughs and movmax removes narrow downward notches without spline artifacts.
+lower_envelope = movmax(movmin(fft_segment, baseline_span), baseline_span);
+lower_envelope = smoothdata(lower_envelope, 'movmean', min(11, numel(lower_envelope)));
+lobe_spectrum = smoothdata(fft_segment, 'gaussian', 3);
 
-lobe_shape = smoothdata(fft_segment, 'gaussian', 3);
-local_noise_floor = median(lobe_shape);
+% The lower envelope itself is a floor and normally does not intersect the
+% lobe. Twenty percent of the peak-to-envelope height captures the full lobe.
+peak_level = lobe_spectrum(peak_local_idx);
+threshold_curve = lower_envelope + 0.20 * (peak_level - lower_envelope);
+difference = lobe_spectrum - threshold_curve;
 
-peak_local_idx = peak_idx - seg_start + 1;
-peak_height = lobe_shape(peak_local_idx);
-prominence = peak_height - local_noise_floor;
-
-threshold_db = local_noise_floor + (prominence * 0.20);
-
-l_idx = 1;
-for i = peak_local_idx:-1:1
-    if lobe_shape(i) <= threshold_db
-        l_idx = i;
+for i = peak_local_idx-1:-1:1
+    if difference(i) <= 0 && difference(i+1) > 0
+        left_freq = interpolate_intersection(f_segment(i), difference(i), f_segment(i+1), difference(i+1));
+        break;
+    end
+end
+for i = peak_local_idx:numel(difference)-1
+    if difference(i) > 0 && difference(i+1) <= 0
+        right_freq = interpolate_intersection(f_segment(i), difference(i), f_segment(i+1), difference(i+1));
         break;
     end
 end
 
-r_idx = length(lobe_shape);
-for i = peak_local_idx:1:length(lobe_shape)
-    if lobe_shape(i) <= threshold_db
-        r_idx = i;
-        break;
-    end
+if isfinite(left_freq) && isfinite(right_freq)
+    bandwidth = right_freq - left_freq;
+end
 end
 
-bandwidth = abs(f_segment(r_idx) - f_segment(l_idx));
-end
-
-function [bandwidth, f_segment, fft_segment, env_up, env_lo, threshold_curve, l_idx, r_idx] = get_peak_bandwidth_hilbert(peak_freq, spec_db, f_pos)
-% Extracts the bandwidth of a specific frequency peak using an analytic Hilbert envelope and dynamic parallel thresholding.
-[~, peak_idx] = min(abs(f_pos - peak_freq));
-
-df = f_pos(2) - f_pos(1);
-window_radius = max(10, ceil(35 / df));
-
-seg_start = max(1, peak_idx - window_radius);
-seg_end = min(length(spec_db), peak_idx + window_radius);
-
-f_segment = f_pos(seg_start:seg_end);
-fft_segment = spec_db(seg_start:seg_end);
-
-% Compute analytic envelope (Hilbert based)
-[env_up, env_lo] = envelope(fft_segment, 15, 'analytic');
-
-peak_local_idx = peak_idx - seg_start + 1;
-peak_height = env_up(peak_local_idx);
-local_noise_floor = env_lo(peak_local_idx);
-prominence = peak_height - local_noise_floor;
-
-threshold_curve = env_lo + (prominence * 0.20);
-
-l_idx = 1;
-for i = peak_local_idx:-1:1
-    if env_up(i) <= threshold_curve(i)
-        l_idx = i;
-        break;
-    end
-end
-
-r_idx = length(env_up);
-for i = peak_local_idx:1:length(env_up)
-    if env_up(i) <= threshold_curve(i)
-        r_idx = i;
-        break;
-    end
-end
-
-bandwidth = abs(f_segment(r_idx) - f_segment(l_idx));
+function crossing_freq = interpolate_intersection(f1, d1, f2, d2)
+% Linear interpolation gives a crossing frequency finer than an FFT bin.
+crossing_freq = f1 - d1 * (f2 - f1) / (d2 - d1);
 end
 
 % -------------------------------------------------------------------------
@@ -322,18 +309,25 @@ end
 
 function rolling_fairness = compute_successive_jains(x, window_size)
 % Calculates the rolling Jain's Fairness Index over a sliding window of sequential bandwidth measurements.
-x = x(~isnan(x) & x > 0);
-if length(x) < window_size
+if window_size < 1 || window_size ~= floor(window_size)
+    error('window_size must be a positive integer.');
+end
+
+% Invalid estimates break a consecutive sequence; removing them would make
+% measurements on opposite sides of a failed slice appear successive.
+valid = isfinite(x) & x > 0;
+if nnz(valid) < window_size
     rolling_fairness = [];
     return;
 end
 
-num_windows = length(x) - window_size + 1;
-rolling_fairness = zeros(num_windows, 1);
-
-for i = 1:num_windows
-    win_vals = x(i:i+window_size-1);
-    rolling_fairness(i) = (sum(win_vals)^2) / (length(win_vals) * sum(win_vals.^2));
+rolling_fairness = [];
+for i = 1:(length(x) - window_size + 1)
+    win_vals = x(i:i + window_size - 1);
+    if all(isfinite(win_vals) & win_vals > 0)
+        rolling_fairness(end+1, 1) = (sum(win_vals)^2) / ...
+            (window_size * sum(win_vals.^2));
+    end
 end
 end
 
@@ -343,6 +337,17 @@ end
 
 function plot_distribution(data_scooter, data_ship, bw, title_str, xlabel_str)
 % Helper to plot comparative Kernel Density Estimation (KDE) distributions for datasets.
+data_scooter = data_scooter(isfinite(data_scooter));
+data_ship = data_ship(isfinite(data_ship));
+if isempty(data_scooter) || isempty(data_ship)
+    title(title_str);
+    xlabel(xlabel_str);
+    ylabel('Density Probability');
+    text(0.5, 0.5, 'Insufficient valid data to estimate a distribution', ...
+        'Units', 'normalized', 'HorizontalAlignment', 'center');
+    grid on; box on;
+    return;
+end
 [f_scooter, xi_scooter] = ksdensity(data_scooter, 'Bandwidth', bw);
 [f_ship, xi_ship] = ksdensity(data_ship, 'Bandwidth', bw);
 
@@ -357,7 +362,7 @@ grid on; box on;
 end
 
 function plot_example_bandwidth(file_path, sr_target, samples_needed, slice_len, win, min_freq, max_freq, title_prefix)
-% Plots a detailed visual diagnostic of the bandwidth extraction (both Hilbert and Median) for a single example slice.
+% Plots the lower envelope and its two bandwidth-defining valleys.
 
 [data, sr] = audioread(file_path);
 data = resample_full(data, sr, sr_target);
@@ -375,9 +380,8 @@ all_ffts_db = zeros(sum(pos_mask), num_slices);
 for i = 1:num_slices
     idx_start = (i-1)*slice_len + 1;
     idx_end = i*slice_len;
-    chunk = data(idx_start:idx_end) .* win;
-    chunk_fft = fft(chunk);
-    all_ffts_db(:, i) = 20 * log10(abs(chunk_fft(pos_mask)) + 1e-12);
+    chunk = data(idx_start:idx_end);
+    all_ffts_db(:, i) = robust_slice_spectrum(chunk, slice_len, win);
 end
 
 global_spec_db = median(all_ffts_db, 2);
@@ -393,12 +397,16 @@ target_freq = global_dom_freq(1);
 % Find slice with highest energy near target_freq
 [~, target_idx] = min(abs(f_pos - target_freq));
 search_range = max(1, target_idx-5):min(length(f_pos), target_idx+5);
-energy_near_target = sum(all_ffts_db(search_range, :), 1);
+% dB values cannot be summed as energy. Convert back to linear power before
+% selecting the slice with the strongest target-frequency content.
+energy_near_target = sum(10.^(all_ffts_db(search_range, :) / 10), 1);
 [~, best_slice_idx] = max(energy_near_target);
 
 chunk_db = all_ffts_db(:, best_slice_idx);
 track_tolerance = 25;
-[local_freq, ~] = find_dominant_freq_in_fft(chunk_db, f_pos, target_freq - track_tolerance, target_freq + track_tolerance);
+local_min_freq = max(min_freq, target_freq - track_tolerance);
+local_max_freq = min(max_freq, target_freq + track_tolerance);
+[local_freq, ~] = find_dominant_freq_in_fft(chunk_db, f_pos, local_min_freq, local_max_freq);
 
 if isempty(local_freq)
     disp(['No local dominant frequency found for ' title_prefix ' in best slice']);
@@ -407,33 +415,18 @@ end
 
 peak_freq = local_freq(1);
 
-% Calculate the full baseline/envelope used in find_dominant_freq_in_fft
-full_mask = (f_pos >= min_freq) & (f_pos <= max_freq);
-full_faxis = f_pos(full_mask);
-full_fft_db = chunk_db(full_mask);
-med_span = min(51, max(3, floor(length(full_fft_db)/2)*2 - 1));
-baseline = movmedian(full_fft_db, med_span);
+% Calculate the 20%-of-prominence lobe width from the lower envelope.
+[bw, f_segment, fft_segment, lower_envelope, threshold_curve, left_freq, right_freq] = ...
+    get_peak_bandwidth(peak_freq, chunk_db, f_pos, min_freq, max_freq);
 
-% Plot the full signal and full baseline
-plot(full_faxis, full_fft_db, 'Color', [0.85 0.85 0.85], 'DisplayName', 'Full Segment Spectrum'); hold on;
-plot(full_faxis, baseline, 'Color', [0.4 0.8 0.4], 'LineWidth', 1.5, 'DisplayName', 'Baseline Envelope (movmedian)');
+plot(f_segment, fft_segment, 'Color', [0.5 0.5 0.5], 'LineWidth', 1.2, 'DisplayName', 'Spectrum'); hold on;
+plot(f_segment, lower_envelope, 'Color', [0.2 0.8 0.4], 'LineWidth', 1.5, 'DisplayName', 'Lower Envelope');
+plot(f_segment, threshold_curve, 'Color', [1.0 0.65 0.0], 'LineStyle', '--', 'LineWidth', 1.2, 'DisplayName', '20% Lobe Threshold');
+left_value = interp1(f_segment, threshold_curve, left_freq);
+right_value = interp1(f_segment, threshold_curve, right_freq);
+plot([left_freq right_freq], [left_value right_value], 'ro', 'MarkerFaceColor', 'r', 'DisplayName', 'Bandwidth Limits');
 
-% Calculate BOTH bandwidths
-[bw_hilbert, f_seg_h, fft_seg_h, env_up, env_lo, thresh_h, l_idx_h, r_idx_h] = get_peak_bandwidth_hilbert(peak_freq, chunk_db, f_pos);
-[bw_median, f_seg_m, fft_seg_m, lobe_shape, noise_floor, thresh_m, l_idx_m, r_idx_m] = get_peak_bandwidth(peak_freq, chunk_db, f_pos);
-
-plot(f_seg_h, fft_seg_h, 'Color', [0.4 0.4 0.4], 'LineWidth', 1.5, 'DisplayName', 'Peak Bandwidth Segment');
-plot(f_seg_h, env_lo, 'k:', 'LineWidth', 1.5, 'DisplayName', 'Lower Envelope (Hilbert)');
-
-% Plot marks for Hilbert (red circles)
-plot(f_seg_h(l_idx_h), fft_seg_h(l_idx_h), 'ro', 'MarkerFaceColor', 'r', 'DisplayName', 'Hilbert BW Limits');
-plot(f_seg_h(r_idx_h), fft_seg_h(r_idx_h), 'ro', 'MarkerFaceColor', 'r', 'HandleVisibility', 'off');
-
-% Plot marks for Median (blue squares)
-plot(f_seg_m(l_idx_m), fft_seg_m(l_idx_m), 'bs', 'MarkerFaceColor', 'b', 'DisplayName', 'Median BW Limits');
-plot(f_seg_m(r_idx_m), fft_seg_m(r_idx_m), 'bs', 'MarkerFaceColor', 'b', 'HandleVisibility', 'off');
-
-title(sprintf('%s Example: Peak=%.1f Hz\nHilbert BW=%.1f Hz, Median BW=%.1f Hz', title_prefix, peak_freq, bw_hilbert, bw_median));
+title(sprintf('%s Example: Peak=%.1f Hz\n20%% Lower-Envelope Bandwidth=%.1f Hz', title_prefix, peak_freq, bw));
 xlabel('Frequency (Hz)');
 ylabel('Magnitude (dB)');
 legend('Location', 'best');
