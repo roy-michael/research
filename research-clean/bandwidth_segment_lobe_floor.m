@@ -524,6 +524,30 @@ end
     out.r_freq = f_right;
     out.target_mag = target_mag;
     out.main_bw = f_right - f_left;
+    
+    % Compute 1D Watershed Bandwidth (valley-to-valley)
+    tf_min = islocalmin(mag_smooth);
+    min_indices = find(tf_min);
+    
+    left_candidates = min_indices(min_indices < pk_idx);
+    if ~isempty(left_candidates)
+        ws_l_idx = left_candidates(end);
+    else
+        ws_l_idx = 1;
+    end
+    
+    right_candidates = min_indices(min_indices > pk_idx);
+    if ~isempty(right_candidates)
+        ws_r_idx = right_candidates(1);
+    else
+        ws_r_idx = numel(mag_smooth);
+    end
+    
+    out.ws_l_freq = f_segment(ws_l_idx);
+    out.ws_r_freq = f_segment(ws_r_idx);
+    out.ws_l_mag = mag_segment(ws_l_idx);
+    out.ws_r_mag = mag_segment(ws_r_idx);
+    out.ws_bw = out.ws_r_freq - out.ws_l_freq;
 end
 
 function crossing_frequency = interpolate_crossing(f, y, i1, i2, level, side)
@@ -655,10 +679,15 @@ for k = 1:num_data
 
         lbl = 'Main Peak';
 
-        % Plot Adaptive Base Intersections
+        % Plot Adaptive Base Intersections (Half-Prominence)
         plot(ax, [h.l_freq, h.r_freq], 20*log10([h.target_mag, h.target_mag]+eps), 'd', ...
             'MarkerEdgeColor', [1.0 0.2 0.2], 'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 8, ...
-            'DisplayName', sprintf('%s Base BW: %.1f Hz', lbl, h.main_bw));
+            'DisplayName', sprintf('%s Half-Prom BW: %.1f Hz', lbl, h.main_bw));
+            
+        % Plot Watershed Intersections (Valley-to-Valley)
+        plot(ax, [h.ws_l_freq, h.ws_r_freq], 20*log10([h.ws_l_mag, h.ws_r_mag]+eps), 'v', ...
+            'MarkerEdgeColor', [0.8 0.4 1.0], 'MarkerFaceColor', [0.8 0.4 1.0], 'MarkerSize', 7, ...
+            'DisplayName', sprintf('%s Watershed BW: %.1f Hz', lbl, h.ws_bw));
 
         % Plot Peak Marker
         plot(ax, h.main_f, 20*log10(h.main_mag+eps), 'v', ...
@@ -771,7 +800,9 @@ for k = 1:length(results)
     if h.found
         fprintf('  ----------------------------------------------------------\n');
         fprintf('  ROBUST MAIN PEAK BANDWIDTH:\n');
-        fprintf('    MAIN PEAK       %0.2f Hz (Mag: %0.2f dB) | Base BW: %0.2f Hz\n', h.main_f, 20*log10(h.main_mag+eps), h.main_bw);
+        fprintf('    MAIN PEAK          %0.2f Hz (Mag: %0.2f dB)\n', h.main_f, 20*log10(h.main_mag+eps));
+        fprintf('    Half-Prominence BW: %0.2f Hz\n', h.main_bw);
+        fprintf('    Watershed Basin BW: %0.2f Hz\n', h.ws_bw);
     end
 
 
@@ -920,11 +951,17 @@ for k = 1:num_data
     yline(ax, target_mag_db, 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
         'DisplayName', 'Adaptive Intersection Threshold (Half Prominence)');
         
-    % Markers
+    % Markers for Half-Prominence
     plot(ax, outlier_slice.l_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
         'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
     plot(ax, outlier_slice.r_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
         'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
+        
+    % Plot Watershed Intersections (Valley-to-Valley)
+    plot(ax, [outlier_slice.ws_l_freq, outlier_slice.ws_r_freq], ...
+        20*log10([outlier_slice.ws_l_mag, outlier_slice.ws_r_mag]+eps), 'v', ...
+        'MarkerEdgeColor', [0.8 0.4 1.0], 'MarkerFaceColor', [0.8 0.4 1.0], 'MarkerSize', 6, ...
+        'HandleVisibility', 'off');
     
     title(ax, sprintf('%s: Outlier Slice (Dev: %.1f Hz from Mean %.1f Hz)', r.meta.name, abs(outlier_slice.main_bw - mean_bw), mean_bw), ...
         'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
