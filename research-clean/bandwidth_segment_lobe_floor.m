@@ -488,9 +488,11 @@ end
     out.main_f = pk_f;
     out.main_mag = pk_mag;
     
-    % Compute dynamic threshold bounded by noise floor
-    drop_factor_linear = 10^(threshold_db / 20);
-    target_mag = max(noise_floor, pk_mag * drop_factor_linear);
+    % Compute dynamic threshold based on SNR (halfway between peak and noise floor in dB)
+    pk_db = 20 * log10(pk_mag + eps);
+    nf_db = 20 * log10(noise_floor + eps);
+    target_db = nf_db + 0.5 * (pk_db - nf_db);
+    target_mag = 10^(target_db / 20);
     
     % Search left for target magnitude intersection on RAW magnitude
     nf_left_cross = find(mag_segment(1:pk_idx) <= target_mag, 1, 'last');
@@ -635,7 +637,7 @@ for k = 1:num_data
             'DisplayName', 'Local Noise Floor');
 
         yline(ax, 20*log10(h.target_mag+eps), 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
-            'DisplayName', 'Adaptive Intersection Threshold (-3 dB bounds)');
+            'DisplayName', 'Adaptive Intersection Threshold (Half SNR)');
 
         lbl = 'Main Peak';
 
@@ -902,7 +904,7 @@ for k = 1:num_data
         
     % Plot Adaptive Threshold
     yline(ax, target_mag_db, 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
-        'DisplayName', 'Adaptive Intersection Threshold (-3 dB bounds)');
+        'DisplayName', 'Adaptive Intersection Threshold (Half SNR)');
         
     % Markers
     plot(ax, outlier_slice.l_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
