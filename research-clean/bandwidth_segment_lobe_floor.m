@@ -488,10 +488,24 @@ end
     out.main_f = pk_f;
     out.main_mag = pk_mag;
     
-    % Compute dynamic threshold based on SNR (halfway between peak and noise floor in dB)
-    pk_db = 20 * log10(pk_mag + eps);
-    nf_db = 20 * log10(noise_floor + eps);
-    target_db = nf_db + 0.5 * (pk_db - nf_db);
+    % Compute dynamic threshold based on half-prominence using MATLAB's findpeaks
+    mag_smooth_db = 20 * log10(mag_smooth + eps);
+    [pks, locs, w, p] = findpeaks(mag_smooth_db, f_segment);
+    
+    if isempty(pks)
+        % Fallback
+        pk_db = 20 * log10(pk_mag + eps);
+        nf_db = 20 * log10(noise_floor + eps);
+        target_db = nf_db + 0.5 * (pk_db - nf_db);
+    else
+        % Match closest peak to our identified max peak
+        [~, match_idx] = min(abs(locs - pk_f));
+        pk_db = pks(match_idx);
+        prom_db = p(match_idx);
+        % Target is half-prominence
+        target_db = pk_db - (prom_db / 2);
+    end
+    
     target_mag = 10^(target_db / 20);
     
     % Search left for target magnitude intersection on RAW magnitude
@@ -637,7 +651,7 @@ for k = 1:num_data
             'DisplayName', 'Local Noise Floor');
 
         yline(ax, 20*log10(h.target_mag+eps), 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
-            'DisplayName', 'Adaptive Intersection Threshold (Half SNR)');
+            'DisplayName', 'Adaptive Intersection Threshold (Half Prominence)');
 
         lbl = 'Main Peak';
 
@@ -904,7 +918,7 @@ for k = 1:num_data
         
     % Plot Adaptive Threshold
     yline(ax, target_mag_db, 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
-        'DisplayName', 'Adaptive Intersection Threshold (Half SNR)');
+        'DisplayName', 'Adaptive Intersection Threshold (Half Prominence)');
         
     % Markers
     plot(ax, outlier_slice.l_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
