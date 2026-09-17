@@ -26,7 +26,7 @@ function cfg = get_analysis_config()
 cfg = struct();
 
 % Directory hierarchy
-base_dir = 'D:\RoyStudies\Recordings';
+base_dir = 'c:\Users\Roy\Recordings';
 dir_hear_my_ship = fullfile(base_dir, 'hear_my_ship', 'V1', 'Motor Boats');
 dir_croatia      = fullfile(base_dir, 'Croatia', 'Ocean Sonics', '2407_1_600m');
 
@@ -36,9 +36,9 @@ cfg.datasets = struct(...
     'Dataset 2: Ocean Sonics (Croatia 600m)'}, ...
     'folder', {dir_hear_my_ship, dir_croatia}, ...
     'path',   {fullfile(dir_hear_my_ship, 'Motorboat_08.08.23_105220_20secCPA.wav'), ...
-    fullfile(dir_croatia, 'RBW6737_20250724_093000.wav')}, ...
+    fullfile(dir_croatia, 'RBW6737_20250724_092500.wav')}, ...
     'f_low',  {50,   400}, ...
-    'f_high', {2000, 2000} ...
+    'f_high', {2000, 1200} ...
     );
 
 % Standardized digital signal processing parameters
@@ -48,16 +48,12 @@ cfg.df_eval        = 0.25;     % Uniform spectral evaluation grid step (Hz)
 
 % Spectral estimation window durations
 cfg.twin_welch     = 0.050;   % Welch window length (50 ms -> ~20 Hz resolution)
-cfg.slice_dur_sec  = 0.750;   % Time-domain FFT slice duration for Hilbert analysis (250 ms)
-
-% Two-Pass Split-Window (TPSW) CFAR parameters
-cfg.tpsw_guard_hz  = 2.5;     % Guard band half-width (Hz)
-cfg.tpsw_ref_hz    = 30.0;    % Reference noise band half-width (Hz)
-cfg.tpsw_gate_db   = 3.0;     % Pass 1 peak censoring threshold (dB)
-cfg.tpsw_thresh_db = 3.8;     % Pass 2 CFAR tonal detection threshold (dB)
+cfg.slice_dur_sec  = 0.250;   % Time-domain FFT slice duration for Hilbert analysis (250 ms)
 
 % Watershed & Macro-Lobe segmentation parameters
 cfg.prom_split_db  = 5.0;     % Inter-peak prominence drop for independent lobes (dB)
+cfg.floor_return_db = 10.0;    % Max height above noise floor to be considered a 'return' (dB)
+cfg.floor_dist_db  = 50.0;    % Max height above floor for prominence split (set high to always split)
 cfg.fairness_window = 5;      % Window size for rolling Jain's fairness index
 end
 
@@ -85,11 +81,17 @@ for k = 1:num_datasets
     % 3. Prominence-Based Macro-Lobe Watershed Segmentation
     % (Retains dominant frequency selection based on highest integrated energy)
     [macro_lobes, dom_lobe, ocean_floor_smooth, ocean_ambient_db] = ...
-        segment_macro_lobes(psd_db, f_grid, df, cfg.prom_split_db);
+        segment_macro_lobes(psd_db, f_grid, df, cfg.prom_split_db, cfg.floor_return_db, cfg.floor_dist_db);
 
-    % 4. Direct Time-Domain Robust -3dB Bandwidth & Side-Lobe Detection
-    robust_bw = compute_robust_bandwidth(audio_sig, fs_actual, ...
-        dom_lobe, cfg.slice_dur_sec, -3.0, 3.0, cfg.fairness_window);
+    % 4. Adaptive Peak Narrow-Band Tracking on Time-Domain Slices (Intersection Method)
+    adaptive_peak_bw = compute_adaptive_peak_bandwidth(audio_sig, fs_actual, d_meta.f_low, d_meta.f_high, ...
+        f_grid, ocean_floor_smooth, macro_lobes, ...
+        cfg.slice_dur_sec, cfg.prom_split_db, cfg.fairness_window);
+
+    % 4b. Direct Time-Domain Watershed Bandwidth on Slices
+    watershed_bw = compute_watershed_bandwidth(audio_sig, fs_actual, ...
+        d_meta.f_low, d_meta.f_high, psd_db, f_grid, macro_lobes, ocean_floor_smooth, ...
+        cfg.slice_dur_sec, cfg.fairness_window);
 
     % 5. Time-Frequency 2D Spectrogram Computation
     [t_spec, f_spec, p_spec_db] = compute_spectrogram_matrix(audio_sig, fs_actual, ...
@@ -106,7 +108,8 @@ for k = 1:num_datasets
     res.dom_lobe           = dom_lobe;
     res.ocean_floor_smooth = ocean_floor_smooth;
     res.ocean_ambient_db   = ocean_ambient_db;
-    res.robust_bw          = robust_bw;
+    res.adaptive_peak_bw          = adaptive_peak_bw;
+    res.watershed_bw       = watershed_bw;
     res.t_spec             = t_spec;
     res.f_spec             = f_spec;
     res.p_spec_db          = p_spec_db;
@@ -118,7 +121,7 @@ end
 
 % STREAMING_CHUNK:Rendering full graphical diagnostic figures...
 render_spectral_and_cfar_figures(analysis_results, cfg);
-render_dominant_robust_figures(analysis_results, cfg);
+render_slice_comparison_figures(analysis_results, cfg);
 render_spectrogram_figures(analysis_results, cfg);
 render_bandwidth_distribution(analysis_results, cfg);
 render_outlier_figures(analysis_results, cfg);
@@ -266,8 +269,7 @@ end
 % =========================================================================
 % MODULE 6: PROMINENCE-BASED MACRO-LOBE WATERSHED SEGMENTATION
 % =========================================================================
-function [macro_lobes, dom_lobe, ocean_floor_smooth, ocean_ambient_db] = ...
-    segment_macro_lobes(psd_db, f_grid, df, prom_split_db)
+function [macro_lobes, dom_lobe, ocean_floor_smooth, ocean_ambient_db] = segment_macro_lobes(psd_db, f_grid, df, prom_split_db, floor_return_db, floor_dist_db)
 % Extracts broadband acoustic structures relative to ambient ocean baseline,
 % resolving independent lobes via topographic saddle-point prominence splitting.
 % Keeps dominant lobe selection strictly anchored to highest integrated linear energy.
@@ -309,8 +311,8 @@ for v = 1:length(valleys)
         drop_r = psd_env(pk_r) - psd_env(idx_v);
         min_drop = min(drop_l, drop_r);
 
-        is_ambient_floor_return = (delta_ambient_db(idx_v) <= 3.0);
-        is_isolated_carrier_split = (min_drop >= 7.0) && (delta_ambient_db(idx_v) <= 5.0);
+        is_ambient_floor_return = (delta_ambient_db(idx_v) <= floor_return_db);
+        is_isolated_carrier_split = (min_drop >= prom_split_db) && (delta_ambient_db(idx_v) <= floor_dist_db);
 
         if is_ambient_floor_return || is_isolated_carrier_split
             valid_valleys = [valid_valleys; idx_v];
@@ -378,8 +380,8 @@ else
 end
 end
 
-% STREAMING_CHUNK:Deriving robust -3dB bandwidth and side-lobes on time-domain slice...
-function out = compute_robust_bandwidth(signal, fs, dom_lobe, slice_dur_sec, threshold_db, prom_db, fairness_win)
+% STREAMING_CHUNK:Deriving watershed bandwidth on time-domain slices...
+function out = compute_watershed_bandwidth(signal, fs, f_low, f_high, psd_db_global, f_grid_global, macro_lobes_global, ocean_floor_smooth_global, slice_dur_sec, fairness_win)
 if isempty(signal)
     out = struct('found', false, 'all_main_bws', [], 'all_fairness', []);
     return;
@@ -394,7 +396,7 @@ slice_outputs = cell(num_slices, 1);
 for i = 1:num_slices
     idx = (i-1)*slice_len + (1:slice_len);
     sig_slice = signal(idx);
-    slice_out = compute_single_slice_robust_bandwidth(sig_slice, fs, dom_lobe, threshold_db, prom_db);
+    slice_out = compute_single_slice_watershed_bandwidth(sig_slice, fs, f_low, f_high, psd_db_global, f_grid_global, macro_lobes_global, ocean_floor_smooth_global);
     slice_out.slice_idx = i;
     slice_outputs{i} = slice_out;
     if slice_out.found && isfinite(slice_out.main_bw)
@@ -414,7 +416,7 @@ if length(sig_slice_center) < slice_len
     sig_slice_center = [sig_slice_center; zeros(slice_len - length(sig_slice_center), 1)];
 end
 
-out = compute_single_slice_robust_bandwidth(sig_slice_center, fs, dom_lobe, threshold_db, prom_db);
+out = compute_single_slice_watershed_bandwidth(sig_slice_center, fs, f_low, f_high, psd_db_global, f_grid_global, macro_lobes_global, ocean_floor_smooth_global);
 out.all_main_bws = all_main_bws;
 out.all_fairness = all_fairness;
 out.slice_outputs = slice_outputs;
@@ -435,7 +437,138 @@ for i = 1:numel(rolling_fairness)
 end
 end
 
-function out = compute_single_slice_robust_bandwidth(sig_slice, fs, dom_lobe, threshold_db, prom_db)
+function out = compute_single_slice_watershed_bandwidth(sig_slice, fs, f_low, f_high, psd_db_global, f_grid_global, macro_lobes_global, ocean_floor_smooth_global)
+out = struct('found', false, 'main_bw', NaN, 'f_segment', [], 'psd_segment', [], ...
+    'noise_floor_db', NaN, 'main_f', NaN, 'main_mag_db', NaN, ...
+    'l_freq', NaN, 'r_freq', NaN, 'ocean_floor_smooth', []);
+
+out.f_segment = f_grid_global;
+out.psd_segment = psd_db_global;
+out.ocean_floor_smooth = ocean_floor_smooth_global;
+
+slice_len = length(sig_slice);
+win = hann(slice_len);
+sig_win = sig_slice .* win;
+sig_fft = fft(sig_win);
+f_axis = (0 : slice_len - 1)' * (fs / slice_len);
+pos_mask = (f_axis >= f_low) & (f_axis <= f_high);
+f_pos = f_axis(pos_mask);
+mag_pos = abs(sig_fft(pos_mask));
+
+if numel(mag_pos) < 2
+    return;
+end
+
+[pk_mag, pk_idx] = max(mag_pos);
+local_peak_freq = f_pos(pk_idx);
+
+matched_lobe = [];
+for m = 1:length(macro_lobes_global)
+    lobe = macro_lobes_global(m);
+    if local_peak_freq >= lobe.f_start && local_peak_freq <= lobe.f_end
+        matched_lobe = lobe;
+        break;
+    end
+end
+
+if isempty(matched_lobe) && ~isempty(macro_lobes_global)
+    % Fallback to closest lobe
+    freq_diffs = arrayfun(@(l) min(abs(local_peak_freq - l.f_start), abs(local_peak_freq - l.f_end)), macro_lobes_global);
+    [~, min_idx] = min(freq_diffs);
+    matched_lobe = macro_lobes_global(min_idx);
+end
+
+if ~isempty(matched_lobe) && matched_lobe.bandwidth > 0
+    f_start = max(f_low, matched_lobe.f_start - 50);
+    f_end   = min(f_high, matched_lobe.f_end + 50);
+    
+    idx_mask = (f_pos >= f_start) & (f_pos <= f_end);
+    f_segment = f_pos(idx_mask);
+    mag_segment = mag_pos(idx_mask);
+    
+    if numel(mag_segment) < 3
+        return;
+    end
+    
+    mag_smooth = smoothdata(mag_segment, 'gaussian', 5);
+    mag_smooth_db = 20 * log10(mag_smooth + eps);
+    
+    [pk_mag_smooth, pk_idx_smooth] = max(mag_smooth);
+    local_peak_freq = f_segment(pk_idx_smooth);
+    
+    [v_mag, v_loc] = findpeaks(-mag_smooth_db, f_segment);
+    v_mag = -v_mag;
+    
+    left_valleys_idx = find(v_loc < local_peak_freq);
+    if isempty(left_valleys_idx)
+        l_freq = f_segment(1);
+    else
+        l_freq = v_loc(left_valleys_idx(end));
+    end
+    
+    right_valleys_idx = find(v_loc > local_peak_freq);
+    if isempty(right_valleys_idx)
+        r_freq = f_segment(end);
+    else
+        r_freq = v_loc(right_valleys_idx(1));
+    end
+
+    out.found = true;
+    out.main_bw = r_freq - l_freq;
+    out.main_f = local_peak_freq;
+    out.main_mag_db = 20 * log10(pk_mag_smooth + eps);
+    out.l_freq = l_freq;
+    out.r_freq = r_freq;
+
+    % Find the baseline noise floor at the local peak
+    out.noise_floor_db = interp1(f_grid_global, ocean_floor_smooth_global, local_peak_freq, 'linear', 'extrap');
+end
+end
+
+% STREAMING_CHUNK:Deriving adaptive peak -3dB bandwidth and side-lobes on time-domain slice...
+function out = compute_adaptive_peak_bandwidth(signal, fs, f_low, f_high, f_grid_global, ocean_floor_smooth_global, macro_lobes_global, slice_dur_sec, prom_db, fairness_win)
+if isempty(signal)
+    out = struct('found', false, 'all_main_bws', [], 'all_fairness', []);
+    return;
+end
+
+slice_len = floor(fs * slice_dur_sec);
+total_samples = length(signal);
+num_slices = floor(total_samples / slice_len);
+
+all_main_bws = [];
+slice_outputs = cell(num_slices, 1);
+for i = 1:num_slices
+    idx = (i-1)*slice_len + (1:slice_len);
+    sig_slice = signal(idx);
+    slice_out = compute_single_slice_adaptive_peak_bandwidth(sig_slice, fs, f_low, f_high, f_grid_global, ocean_floor_smooth_global, macro_lobes_global, prom_db);
+    slice_out.slice_idx = i;
+    slice_outputs{i} = slice_out;
+    if slice_out.found && isfinite(slice_out.main_bw)
+        all_main_bws = [all_main_bws; slice_out.main_bw];
+    end
+end
+
+all_fairness = compute_successive_jains(all_main_bws, fairness_win);
+
+% Extract Time-Domain Slice Centered on Midpoint for detailed visualization
+center_idx = round(total_samples / 2);
+start_idx  = max(1, center_idx - floor(slice_len / 2));
+end_idx    = min(total_samples, start_idx + slice_len - 1);
+
+
+sig_slice_center = signal(start_idx:end_idx);
+if length(sig_slice_center) < slice_len
+    sig_slice_center = [sig_slice_center; zeros(slice_len - length(sig_slice_center), 1)];
+end
+
+out = compute_single_slice_adaptive_peak_bandwidth(sig_slice_center, fs, f_low, f_high, f_grid_global, ocean_floor_smooth_global, macro_lobes_global, prom_db);
+out.all_main_bws = all_main_bws;
+out.all_fairness = all_fairness;
+out.slice_outputs = slice_outputs;
+end
+
+function out = compute_single_slice_adaptive_peak_bandwidth(sig_slice, fs, f_low, f_high, f_grid_global, ocean_floor_smooth_global, macro_lobes_global, prom_db)
 out = struct('found', false, 'main_bw', NaN, 'f_segment', [], 'mag_segment', [], ...
     'noise_floor', NaN, 'main_f', NaN, 'main_mag', NaN, ...
     'l_freq', NaN, 'r_freq', NaN);
@@ -450,9 +583,46 @@ pos_mask = (f_axis >= 0) & (f_axis <= fs / 2);
 f_pos = f_axis(pos_mask);
 mag_pos = abs(sig_fft(pos_mask));
 
-% Focus on the dominant macro-lobe frequency bounds + 50 Hz padding
-f_start = max(0, dom_lobe.f_start - 50);
-f_end   = min(fs/2, dom_lobe.f_end + 50);
+% First, find the peak in the whole passband
+f_start_full = f_low;
+f_end_full   = f_high;
+
+idx_mask_full = (f_pos >= f_start_full) & (f_pos <= f_end_full);
+f_segment_full = f_pos(idx_mask_full);
+mag_segment_full = mag_pos(idx_mask_full);
+
+if numel(mag_segment_full) < 10
+    return;
+end
+
+[~, pk_idx_full] = max(mag_segment_full);
+pk_f_full = f_segment_full(pk_idx_full);
+
+% Find which global macro_lobe this peak belongs to
+matched_lobe = [];
+for m = 1:length(macro_lobes_global)
+    lobe = macro_lobes_global(m);
+    if pk_f_full >= lobe.f_start && pk_f_full <= lobe.f_end
+        matched_lobe = lobe;
+        break;
+    end
+end
+
+if isempty(matched_lobe) && ~isempty(macro_lobes_global)
+    % Fallback to closest lobe
+    freq_diffs = arrayfun(@(l) min(abs(pk_f_full - l.f_start), abs(pk_f_full - l.f_end)), macro_lobes_global);
+    [~, min_idx] = min(freq_diffs);
+    matched_lobe = macro_lobes_global(min_idx);
+end
+
+% Focus on the specified passband bounded by the matched lobe
+if ~isempty(matched_lobe)
+    f_start = max(f_low, matched_lobe.f_start - 50);
+    f_end   = min(f_high, matched_lobe.f_end + 50);
+else
+    f_start = f_low;
+    f_end   = f_high;
+end
 
 idx_mask = (f_pos >= f_start) & (f_pos <= f_end);
 f_segment = f_pos(idx_mask);
@@ -465,65 +635,65 @@ end
 % Smooth linear magnitude
 mag_smooth = smoothdata(mag_segment, 'gaussian', 5);
 
-% Estimate local noise floor from the outer 15% of the segment
-n_seg = numel(mag_smooth);
-edge_count = max(2, round(0.15 * n_seg));
-edge_values = [mag_smooth(1:edge_count); mag_smooth(end-edge_count+1:end)];
-noise_floor = median(edge_values);
-
-% Find the single dominant peak in the segment (using smoothed for robust localization)
 [pk_mag_smooth, pk_idx] = max(mag_smooth);
 pk_f = f_segment(pk_idx);
 pk_mag = mag_segment(pk_idx);
+
+% Lookup noise floor from global smoothed floor instead of edge estimation
+noise_floor_db = interp1(f_grid_global, ocean_floor_smooth_global, pk_f, 'linear', 'extrap');
+noise_floor = 10^(noise_floor_db / 20); % convert dB back to linear magnitude
 
 excess_peak = pk_mag_smooth - noise_floor;
 if excess_peak <= 0
     return;
 end
 
-    out.found = true;
-    out.f_segment = f_segment;
-    out.mag_segment = mag_segment;
-    out.noise_floor = noise_floor;
-    out.main_f = pk_f;
-    out.main_mag = pk_mag;
+out.found = true;
+out.f_segment = f_segment;
+out.mag_segment = mag_segment;
+out.noise_floor = noise_floor;
+out.main_f = pk_f;
+out.main_mag = pk_mag;
+
+% Compute dynamic threshold based on half-prominence using MATLAB's findpeaks
+mag_smooth_db = 20 * log10(mag_smooth + eps);
+[pks, locs, w, p] = findpeaks(mag_smooth_db, f_segment);
+
+if isempty(pks)
+    % Fallback
+    pk_db = 20 * log10(pk_mag + eps);
+    nf_db = noise_floor_db;
+    target_db = nf_db + 0.5 * (pk_db - nf_db);
+else
+    % Match closest peak to our identified max peak
+    [~, match_idx] = min(abs(locs - pk_f));
+    pk_db = pks(match_idx);
     
-    % Compute dynamic threshold based on half-prominence using MATLAB's findpeaks
-    mag_smooth_db = 20 * log10(mag_smooth + eps);
-    [pks, locs, w, p] = findpeaks(mag_smooth_db, f_segment);
+    nf_db = noise_floor_db;
+    actual_prom_db = pk_db - nf_db;
     
-    if isempty(pks)
-        % Fallback
-        pk_db = 20 * log10(pk_mag + eps);
-        nf_db = 20 * log10(noise_floor + eps);
-        target_db = nf_db + 0.5 * (pk_db - nf_db);
-    else
-        % Match closest peak to our identified max peak
-        [~, match_idx] = min(abs(locs - pk_f));
-        pk_db = pks(match_idx);
-        prom_db = p(match_idx);
-        % Target is half-prominence
-        target_db = pk_db - (prom_db / 2);
-    end
-    
-    target_mag = 10^(target_db / 20);
-    
-    % Search left for target magnitude intersection on RAW magnitude
-    nf_left_cross = find(mag_segment(1:pk_idx) <= target_mag, 1, 'last');
-    if isempty(nf_left_cross), [~, nf_left_cross] = min(mag_segment(1:pk_idx)); end
-    
-    % Search right for target magnitude intersection on RAW magnitude
-    nf_right_rel = find(mag_segment(pk_idx:end) <= target_mag, 1, 'first');
-    if isempty(nf_right_rel), [~, nf_right_rel] = min(mag_segment(pk_idx:end)); end
-    nf_right_cross = pk_idx + nf_right_rel - 1;
-    
-    f_left = interpolate_crossing(f_segment, mag_segment, nf_left_cross, nf_left_cross+1, target_mag, 'left');
-    f_right = interpolate_crossing(f_segment, mag_segment, nf_right_cross-1, nf_right_cross, target_mag, 'right');
-    
-    out.l_freq = f_left;
-    out.r_freq = f_right;
-    out.target_mag = target_mag;
-    out.main_bw = f_right - f_left;
+    % Target is half-prominence relative to the global noise floor
+    target_db = nf_db + (actual_prom_db / 2);
+end
+
+target_mag = 10^(target_db / 20);
+
+% Search left for target magnitude intersection on RAW magnitude
+nf_left_cross = find(mag_segment(1:pk_idx) <= target_mag, 1, 'last');
+if isempty(nf_left_cross), [~, nf_left_cross] = min(mag_segment(1:pk_idx)); end
+
+% Search right for target magnitude intersection on RAW magnitude
+nf_right_rel = find(mag_segment(pk_idx:end) <= target_mag, 1, 'first');
+if isempty(nf_right_rel), [~, nf_right_rel] = min(mag_segment(pk_idx:end)); end
+nf_right_cross = pk_idx + nf_right_rel - 1;
+
+f_left = interpolate_crossing(f_segment, mag_segment, nf_left_cross, nf_left_cross+1, target_mag, 'left');
+f_right = interpolate_crossing(f_segment, mag_segment, nf_right_cross-1, nf_right_cross, target_mag, 'right');
+
+out.l_freq = f_left;
+out.r_freq = f_right;
+out.target_mag = target_mag;
+out.main_bw = f_right - f_left;
 end
 
 function crossing_frequency = interpolate_crossing(f, y, i1, i2, level, side)
@@ -620,63 +790,87 @@ for k = 1:num_data
 end
 end
 
-% STREAMING_CHUNK:Plotting Figure 2 with robust -3dB side-lobe bandwidths...
+% STREAMING_CHUNK:Plotting Figure 2 with side-by-side slice bandwidths...
 % =========================================================================
-% MODULE 9B: FIGURE 2 - ROBUST -3DB BANDWIDTH & SIDE-LOBE DETECTION
+% MODULE 9B: FIGURE 2 - SLICE BANDWIDTH COMPARISON (ADAPTIVE PEAK VS WATERSHED)
 % =========================================================================
-function render_dominant_robust_figures(results, cfg)
+function render_slice_comparison_figures(results, cfg)
 num_data = length(results);
 c_bg   = [0.07 0.09 0.13];
 c_ax   = [0.10 0.12 0.18];
 c_text = [0.92 0.94 0.97];
 c_grid = [0.20 0.24 0.32];
 
-figure('Name', 'Figure 2: Robust -3dB Bandwidth & Side-Lobe Detection', ...
-    'Color', c_bg, 'Position', [60, 80, 1500, 580]);
+figure('Name', 'Figure 2: Time-Domain Slice Bandwidth Comparison', ...
+    'Color', c_bg, 'Position', [60, 80, 1600, 800]);
 
 for k = 1:num_data
     r = results{k};
-    h = r.robust_bw;
 
-    ax = subplot(1, num_data, k);
-    set(ax, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
+    % --- Column 1: Adaptive Peak Intersection Bandwidth ---
+    h_adap = r.adaptive_peak_bw;
+    ax_adap = subplot(num_data, 2, 2*k - 1);
+    set(ax_adap, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
         'GridColor', c_grid, 'GridAlpha', 0.5, 'LineWidth', 1.0);
-    hold(ax, 'on'); grid(ax, 'on');
+    hold(ax_adap, 'on'); grid(ax_adap, 'on');
 
-    if h.found
-        plot(ax, h.f_segment, 20*log10(h.mag_segment+eps), 'Color', [0.75 0.80 0.88], 'LineWidth', 1.4, ...
-            'DisplayName', 'Signal FFT Slice (0.25 s Hann @ Midpoint)');
+    if h_adap.found
+        plot(ax_adap, h_adap.f_segment, 20*log10(h_adap.mag_segment+eps), 'Color', [0.75 0.80 0.88], 'LineWidth', 1.4, ...
+            'DisplayName', 'Signal FFT Slice');
 
-        yline(ax, 20*log10(h.noise_floor+eps), 'Color', [1.00 0.78 0.25], 'LineWidth', 1.4, 'LineStyle', ':', ...
+        yline(ax_adap, 20*log10(h_adap.noise_floor+eps), 'Color', [1.00 0.78 0.25], 'LineWidth', 1.4, 'LineStyle', ':', ...
             'DisplayName', 'Local Noise Floor');
 
-        yline(ax, 20*log10(h.target_mag+eps), 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
-            'DisplayName', 'Adaptive Intersection Threshold (Half Prominence)');
+        yline(ax_adap, 20*log10(h_adap.target_mag+eps), 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
+            'DisplayName', 'Adaptive Intersection Threshold');
 
-        lbl = 'Main Peak';
-
-        % Plot Adaptive Base Intersections
-        plot(ax, [h.l_freq, h.r_freq], 20*log10([h.target_mag, h.target_mag]+eps), 'd', ...
+        plot(ax_adap, [h_adap.l_freq, h_adap.r_freq], 20*log10([h_adap.target_mag, h_adap.target_mag]+eps), 'd', ...
             'MarkerEdgeColor', [1.0 0.2 0.2], 'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 8, ...
-            'DisplayName', sprintf('%s Base BW: %.1f Hz', lbl, h.main_bw));
+            'DisplayName', sprintf('Adaptive Peak BW: %.1f Hz', h_adap.main_bw));
 
-        % Plot Peak Marker
-        plot(ax, h.main_f, 20*log10(h.main_mag+eps), 'v', ...
-            'MarkerFaceColor', [0.20 0.90 0.55], 'MarkerEdgeColor', 'none', 'MarkerSize', 8, ...
-            'HandleVisibility', 'off');
+        plot(ax_adap, h_adap.main_f, 20*log10(h_adap.main_mag+eps), 'v', ...
+            'MarkerFaceColor', [0.20 0.90 0.55], 'MarkerEdgeColor', 'none', 'MarkerSize', 8, 'HandleVisibility', 'off');
 
-        title(ax, sprintf('%s: Robust Peak Detection\nMain Peak = %0.1f Hz | Base BW = %0.1f Hz', ...
-            r.meta.name, h.main_f, h.main_bw), ...
-            'FontSize', 10.5, 'FontWeight', 'bold', 'Color', c_text);
+        title(ax_adap, sprintf('%s (Adaptive Peak)\nMain Peak = %0.1f Hz | Base BW = %0.1f Hz', ...
+            r.meta.name, h_adap.main_f, h_adap.main_bw), 'FontSize', 10.5, 'FontWeight', 'bold', 'Color', c_text);
     else
-        title(ax, sprintf('%s: Peak Not Found', r.meta.name), ...
-            'FontSize', 10.5, 'FontWeight', 'bold', 'Color', c_text);
+        title(ax_adap, sprintf('%s: Peak Not Found', r.meta.name), 'FontSize', 10.5, 'FontWeight', 'bold', 'Color', c_text);
     end
+    xlabel(ax_adap, 'Frequency (Hz)', 'FontSize', 9.5, 'FontWeight', 'bold', 'Color', c_text);
+    ylabel(ax_adap, 'Magnitude (dB)', 'FontSize', 9.5, 'FontWeight', 'bold', 'Color', c_text);
+    legend(ax_adap, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid, 'FontSize', 8);
 
-    xlabel(ax, 'Frequency (Hz)', 'FontSize', 9.5, 'FontWeight', 'bold', 'Color', c_text);
-    ylabel(ax, 'Magnitude (dB)', 'FontSize', 9.5, 'FontWeight', 'bold', 'Color', c_text);
-    legend(ax, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], ...
-        'EdgeColor', c_grid, 'FontSize', 8);
+    % --- Column 2: Watershed Bandwidth ---
+    h_wat = r.watershed_bw;
+    ax_wat = subplot(num_data, 2, 2*k);
+    set(ax_wat, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
+        'GridColor', c_grid, 'GridAlpha', 0.5, 'LineWidth', 1.0);
+    hold(ax_wat, 'on'); grid(ax_wat, 'on');
+
+    if h_wat.found
+        plot(ax_wat, h_wat.f_segment, h_wat.psd_segment, 'Color', [0.75 0.80 0.88], 'LineWidth', 1.4, ...
+            'DisplayName', 'Signal Welch PSD Slice');
+
+        plot(ax_wat, h_wat.f_segment, h_wat.ocean_floor_smooth, 'Color', [1.00 0.78 0.25], 'LineWidth', 1.4, 'LineStyle', ':', ...
+            'DisplayName', 'Local Ambient Baseline');
+
+        l_mag_wat = interp1(h_wat.f_segment, h_wat.psd_segment, h_wat.l_freq);
+        r_mag_wat = interp1(h_wat.f_segment, h_wat.psd_segment, h_wat.r_freq);
+        plot(ax_wat, [h_wat.l_freq, h_wat.r_freq], [l_mag_wat, r_mag_wat], 'd', ...
+            'MarkerEdgeColor', [1.0 0.2 0.2], 'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 8, ...
+            'DisplayName', sprintf('Watershed BW: %.1f Hz', h_wat.main_bw));
+
+        plot(ax_wat, h_wat.main_f, h_wat.main_mag_db, 'v', ...
+            'MarkerFaceColor', [0.20 0.90 0.55], 'MarkerEdgeColor', 'none', 'MarkerSize', 8, 'HandleVisibility', 'off');
+
+        title(ax_wat, sprintf('%s (Watershed)\nMain Peak = %0.1f Hz | Base BW = %0.1f Hz', ...
+            r.meta.name, h_wat.main_f, h_wat.main_bw), 'FontSize', 10.5, 'FontWeight', 'bold', 'Color', c_text);
+    else
+        title(ax_wat, sprintf('%s: Peak Not Found', r.meta.name), 'FontSize', 10.5, 'FontWeight', 'bold', 'Color', c_text);
+    end
+    xlabel(ax_wat, 'Frequency (Hz)', 'FontSize', 9.5, 'FontWeight', 'bold', 'Color', c_text);
+    ylabel(ax_wat, 'PSD (dB/Hz)', 'FontSize', 9.5, 'FontWeight', 'bold', 'Color', c_text);
+    legend(ax_wat, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid, 'FontSize', 8);
 
 end
 end
@@ -767,11 +961,18 @@ for k = 1:length(results)
     fprintf('    Summit Peak:                %0.2f dB/Hz @ %0.1f Hz\n', dom.peak_psd, dom.peak_freq);
     fprintf('    Acoustic Energy Fraction:   %0.2f%% OF TOTAL BAND POWER\n', dom.pct_energy);
 
-    h = r.robust_bw;
-    if h.found
+    h_adap = r.adaptive_peak_bw;
+    if h_adap.found
         fprintf('  ----------------------------------------------------------\n');
-        fprintf('  ROBUST MAIN PEAK BANDWIDTH:\n');
-        fprintf('    MAIN PEAK       %0.2f Hz (Mag: %0.2f dB) | Base BW: %0.2f Hz\n', h.main_f, 20*log10(h.main_mag+eps), h.main_bw);
+        fprintf('  ADAPTIVE PEAK BANDWIDTH:\n');
+        fprintf('    MAIN PEAK       %0.2f Hz (Mag: %0.2f dB) | Base BW: %0.2f Hz\n', h_adap.main_f, 20*log10(h_adap.main_mag+eps), h_adap.main_bw);
+    end
+
+    h_wat = r.watershed_bw;
+    if h_wat.found
+        fprintf('  ----------------------------------------------------------\n');
+        fprintf('  WATERSHED MAIN PEAK BANDWIDTH:\n');
+        fprintf('    MAIN PEAK       %0.2f Hz (PSD: %0.2f dB/Hz) | Base BW: %0.2f Hz\n', h_wat.main_f, h_wat.main_mag_db, h_wat.main_bw);
     end
 
 
@@ -794,73 +995,68 @@ c_ax   = [0.10 0.12 0.18];
 c_text = [0.92 0.94 0.97];
 c_grid = [0.20 0.24 0.32];
 
-figure('Name', 'Figure 4: Robust Main Peak Base Bandwidth & Fairness Distribution', ...
-    'Color', c_bg, 'Position', [120, 160, 1500, 500]);
+figure('Name', 'Figure 4: Base Bandwidth & Fairness Distribution Comparison', ...
+    'Color', c_bg, 'Position', [120, 160, 1500, 800]);
 
-% --- Subplot 1: Bandwidth Distribution ---
-ax1 = subplot(1, 2, 1);
-set(ax1, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-    'GridColor', c_grid, 'LineWidth', 1.0);
-hold(ax1, 'on'); grid(ax1, 'on');
+% --- Row 1: Adaptive Peak Metrics ---
+ax1_adap = subplot(2, 2, 1);
+set(ax1_adap, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, 'GridColor', c_grid, 'LineWidth', 1.0);
+hold(ax1_adap, 'on'); grid(ax1_adap, 'on');
 
-data_a = results{1}.robust_bw.all_main_bws;
-data_b = results{2}.robust_bw.all_main_bws;
+plot_kde(ax1_adap, results{1}.adaptive_peak_bw.all_main_bws, results{2}.adaptive_peak_bw.all_main_bws, ...
+    results{1}.meta.name, results{2}.meta.name, 2.0);
+title(ax1_adap, 'Adaptive Peak Main Peak Base BW Distribution', 'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
+xlabel(ax1_adap, 'Bandwidth (Hz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+ylabel(ax1_adap, 'Probability Density', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+legend(ax1_adap, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
 
+ax2_adap = subplot(2, 2, 2);
+set(ax2_adap, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, 'GridColor', c_grid, 'LineWidth', 1.0);
+hold(ax2_adap, 'on'); grid(ax2_adap, 'on');
+
+plot_kde(ax2_adap, results{1}.adaptive_peak_bw.all_fairness, results{2}.adaptive_peak_bw.all_fairness, ...
+    results{1}.meta.name, results{2}.meta.name, 0.02);
+title(ax2_adap, sprintf('Adaptive Peak Rolling Fairness (Window = %d)', cfg.fairness_window), 'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
+xlabel(ax2_adap, 'Jain''s Index', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+ylabel(ax2_adap, 'Probability Density', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+legend(ax2_adap, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
+
+
+% --- Row 2: Watershed Metrics ---
+ax1_wat = subplot(2, 2, 3);
+set(ax1_wat, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, 'GridColor', c_grid, 'LineWidth', 1.0);
+hold(ax1_wat, 'on'); grid(ax1_wat, 'on');
+
+plot_kde(ax1_wat, results{1}.watershed_bw.all_main_bws, results{2}.watershed_bw.all_main_bws, ...
+    results{1}.meta.name, results{2}.meta.name, 2.0);
+title(ax1_wat, 'Watershed Main Peak Base BW Distribution', 'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
+xlabel(ax1_wat, 'Bandwidth (Hz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+ylabel(ax1_wat, 'Probability Density', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+legend(ax1_wat, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
+
+ax2_wat = subplot(2, 2, 4);
+set(ax2_wat, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, 'GridColor', c_grid, 'LineWidth', 1.0);
+hold(ax2_wat, 'on'); grid(ax2_wat, 'on');
+
+plot_kde(ax2_wat, results{1}.watershed_bw.all_fairness, results{2}.watershed_bw.all_fairness, ...
+    results{1}.meta.name, results{2}.meta.name, 0.02);
+title(ax2_wat, sprintf('Watershed Rolling Fairness (Window = %d)', cfg.fairness_window), 'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
+xlabel(ax2_wat, 'Jain''s Index', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+ylabel(ax2_wat, 'Probability Density', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+legend(ax2_wat, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
+end
+
+function plot_kde(ax, data_a, data_b, name_a, name_b, bw_kde)
 data_a = data_a(isfinite(data_a) & data_a > 0);
 data_b = data_b(isfinite(data_b) & data_b > 0);
-
-bw_kde = 2.0; % KDE smoothing bandwidth
-
 if ~isempty(data_a)
     [f_a, xi_a] = ksdensity(data_a, 'Bandwidth', bw_kde);
-    fill(ax1, xi_a, f_a, [0.8 0.3 0.3], 'FaceAlpha', 0.5, ...
-        'EdgeColor', [0.6 0.2 0.2], 'LineWidth', 2, 'DisplayName', results{1}.meta.name);
+    fill(ax, xi_a, f_a, [0.8 0.3 0.3], 'FaceAlpha', 0.5, 'EdgeColor', [0.6 0.2 0.2], 'LineWidth', 2, 'DisplayName', name_a);
 end
-
 if ~isempty(data_b)
     [f_b, xi_b] = ksdensity(data_b, 'Bandwidth', bw_kde);
-    fill(ax1, xi_b, f_b, [0.2 0.6 0.8], 'FaceAlpha', 0.5, ...
-        'EdgeColor', [0.1 0.4 0.6], 'LineWidth', 2, 'DisplayName', results{2}.meta.name);
+    fill(ax, xi_b, f_b, [0.2 0.6 0.8], 'FaceAlpha', 0.5, 'EdgeColor', [0.1 0.4 0.6], 'LineWidth', 2, 'DisplayName', name_b);
 end
-
-title(ax1, 'Robust Main Peak Base Bandwidth Distribution', ...
-    'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
-xlabel(ax1, 'Bandwidth (Hz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-ylabel(ax1, 'Probability Density', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-legend(ax1, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
-
-% --- Subplot 2: Fairness Distribution ---
-ax2 = subplot(1, 2, 2);
-set(ax2, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-    'GridColor', c_grid, 'LineWidth', 1.0);
-hold(ax2, 'on'); grid(ax2, 'on');
-
-fair_a = results{1}.robust_bw.all_fairness;
-fair_b = results{2}.robust_bw.all_fairness;
-
-fair_a = fair_a(isfinite(fair_a) & fair_a > 0);
-fair_b = fair_b(isfinite(fair_b) & fair_b > 0);
-
-fair_kde = 0.02; % KDE smoothing bandwidth for fairness
-
-if ~isempty(fair_a)
-    [f_fa, xi_fa] = ksdensity(fair_a, 'Bandwidth', fair_kde);
-    fill(ax2, xi_fa, f_fa, [0.8 0.3 0.3], 'FaceAlpha', 0.5, ...
-        'EdgeColor', [0.6 0.2 0.2], 'LineWidth', 2, 'DisplayName', results{1}.meta.name);
-end
-
-if ~isempty(fair_b)
-    [f_fb, xi_fb] = ksdensity(fair_b, 'Bandwidth', fair_kde);
-    fill(ax2, xi_fb, f_fb, [0.2 0.6 0.8], 'FaceAlpha', 0.5, ...
-        'EdgeColor', [0.1 0.4 0.6], 'LineWidth', 2, 'DisplayName', results{2}.meta.name);
-end
-
-title(ax2, sprintf('Rolling Bandwidth Consistency (Window = %d)', cfg.fairness_window), ...
-    'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
-xlabel(ax2, 'Jain''s Index', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-ylabel(ax2, 'Probability Density', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-legend(ax2, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
-
 end
 
 % STREAMING_CHUNK:Rendering Figure 5 for Outlier Analysis...
@@ -879,57 +1075,71 @@ figure('Name', 'Figure 5: Outlier Signal Segments (Furthest from Mean BW)', ...
 
 for k = 1:num_data
     r = results{k};
-    slices = r.robust_bw.slice_outputs;
-    
-    valid_slices = [];
-    bws = [];
-    for i = 1:length(slices)
-        if ~isempty(slices{i}) && slices{i}.found && isfinite(slices{i}.main_bw)
-            valid_slices = [valid_slices; i];
-            bws = [bws; slices{i}.main_bw];
-        end
+    % --- Adaptive Peak Outlier ---
+    slices_adap = r.adaptive_peak_bw.slice_outputs;
+    [valid_adap, bws_adap] = extract_valid_bws(slices_adap);
+
+    if ~isempty(valid_adap)
+        mean_bw_adap = mean(bws_adap);
+        [~, max_dev_idx] = max(abs(bws_adap - mean_bw_adap));
+        outlier_adap = slices_adap{valid_adap(max_dev_idx)};
+
+        ax_adap = subplot(num_data, 2, 2*k - 1);
+        set(ax_adap, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, 'GridColor', c_grid, 'LineWidth', 1.0);
+        hold(ax_adap, 'on'); grid(ax_adap, 'on');
+
+        plot(ax_adap, outlier_adap.f_segment, 20 * log10(outlier_adap.mag_segment + eps), 'Color', [0.20 0.82 1.00], 'LineWidth', 1.2, ...
+            'DisplayName', sprintf('Slice %d (BW: %.1f Hz)', outlier_adap.slice_idx, outlier_adap.main_bw));
+        yline(ax_adap, 20 * log10(outlier_adap.noise_floor + eps), 'Color', [0.8 0.4 0.4], 'LineStyle', '--', 'LineWidth', 1.2, 'DisplayName', 'Ambient Noise Floor');
+        yline(ax_adap, 20 * log10(outlier_adap.target_mag + eps), 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', 'DisplayName', 'Adaptive Threshold');
+        plot(ax_adap, outlier_adap.l_freq, 20 * log10(outlier_adap.target_mag + eps), 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], 'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
+        plot(ax_adap, outlier_adap.r_freq, 20 * log10(outlier_adap.target_mag + eps), 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], 'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
+
+        title(ax_adap, sprintf('%s (Adaptive Peak Outlier)\nDev: %.1f Hz from Mean %.1f Hz', r.meta.name, abs(outlier_adap.main_bw - mean_bw_adap), mean_bw_adap), ...
+            'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+        xlabel(ax_adap, 'Frequency (Hz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+        ylabel(ax_adap, 'Magnitude (dB)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+        legend(ax_adap, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
     end
-    
-    if isempty(valid_slices)
-        continue;
+
+    % --- Watershed Outlier ---
+    slices_wat = r.watershed_bw.slice_outputs;
+    [valid_wat, bws_wat] = extract_valid_bws(slices_wat);
+
+    if ~isempty(valid_wat)
+        mean_bw_wat = mean(bws_wat);
+        [~, max_dev_idx] = max(abs(bws_wat - mean_bw_wat));
+        outlier_wat = slices_wat{valid_wat(max_dev_idx)};
+
+        ax_wat = subplot(num_data, 2, 2*k);
+        set(ax_wat, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, 'GridColor', c_grid, 'LineWidth', 1.0);
+        hold(ax_wat, 'on'); grid(ax_wat, 'on');
+
+        plot(ax_wat, outlier_wat.f_segment, outlier_wat.psd_segment, 'Color', [0.20 0.82 1.00], 'LineWidth', 1.2, ...
+            'DisplayName', sprintf('Slice %d (BW: %.1f Hz)', outlier_wat.slice_idx, outlier_wat.main_bw));
+        yline(ax_wat, outlier_wat.noise_floor_db, 'Color', [0.8 0.4 0.4], 'LineStyle', '--', 'LineWidth', 1.2, 'DisplayName', 'Ambient Noise Floor');
+        l_mag_out = interp1(outlier_wat.f_segment, outlier_wat.psd_segment, outlier_wat.l_freq);
+        r_mag_out = interp1(outlier_wat.f_segment, outlier_wat.psd_segment, outlier_wat.r_freq);
+        plot(ax_wat, outlier_wat.l_freq, l_mag_out, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], 'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
+        plot(ax_wat, outlier_wat.r_freq, r_mag_out, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], 'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
+
+
+        title(ax_wat, sprintf('%s (Watershed Outlier)\nDev: %.1f Hz from Mean %.1f Hz', r.meta.name, abs(outlier_wat.main_bw - mean_bw_wat), mean_bw_wat), ...
+            'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+        xlabel(ax_wat, 'Frequency (Hz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+        ylabel(ax_wat, 'PSD (dB/Hz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+        legend(ax_wat, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
     end
-    
-    mean_bw = mean(bws);
-    [~, max_dev_idx] = max(abs(bws - mean_bw));
-    outlier_slice = slices{valid_slices(max_dev_idx)};
-    
-    ax = subplot(1, num_data, k);
-    set(ax, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-        'GridColor', c_grid, 'LineWidth', 1.0);
-    hold(ax, 'on'); grid(ax, 'on');
-    
-    f_seg = outlier_slice.f_segment;
-    mag_db = 20 * log10(outlier_slice.mag_segment + eps);
-    nf_db = 20 * log10(outlier_slice.noise_floor + eps);
-    target_mag_db = 20 * log10(outlier_slice.target_mag + eps);
-    
-    % Plot the raw magnitude
-    plot(ax, f_seg, mag_db, 'Color', [0.20 0.82 1.00], 'LineWidth', 1.2, ...
-        'DisplayName', sprintf('Slice %d (BW: %.1f Hz)', outlier_slice.slice_idx, outlier_slice.main_bw));
-    
-    % Plot Noise Floor
-    yline(ax, nf_db, 'Color', [0.8 0.4 0.4], 'LineStyle', '--', 'LineWidth', 1.2, ...
-        'DisplayName', 'Ambient Noise Floor');
-        
-    % Plot Adaptive Threshold
-    yline(ax, target_mag_db, 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
-        'DisplayName', 'Adaptive Intersection Threshold (Half Prominence)');
-        
-    % Markers
-    plot(ax, outlier_slice.l_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
-        'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
-    plot(ax, outlier_slice.r_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
-        'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
-    
-    title(ax, sprintf('%s: Outlier Slice (Dev: %.1f Hz from Mean %.1f Hz)', r.meta.name, abs(outlier_slice.main_bw - mean_bw), mean_bw), ...
-        'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-    xlabel(ax, 'Frequency (Hz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-    ylabel(ax, 'Magnitude (dB)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-    legend(ax, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
+end
+end
+
+function [valid_slices, bws] = extract_valid_bws(slices)
+valid_slices = [];
+bws = [];
+for i = 1:length(slices)
+    if ~isempty(slices{i}) && slices{i}.found && isfinite(slices{i}.main_bw)
+        valid_slices = [valid_slices; i];
+        bws = [bws; slices{i}.main_bw];
+    end
 end
 end
