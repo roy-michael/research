@@ -178,12 +178,13 @@ classdef Visualizer
                     
                 % Plot Lower Envelope
                 if isfield(h, 'lower_env') && ~isempty(h.lower_env)
-                    plot(ax, h.f_segment, 20*log10(h.lower_env+eps), 'Color', [0.4 0.9 0.4], 'LineWidth', 1.2, 'LineStyle', '-', ...
+                    valid_env = max(h.lower_env, 1e-12);
+                    plot(ax, h.f_segment, 20*log10(valid_env), 'Color', [0.4 0.9 0.4], 'LineWidth', 1.2, 'LineStyle', '-', ...
                         'DisplayName', 'Lower Envelope (Valley Hugging)');
                         
                     if isfield(h, 'l_env_freq') && ~isnan(h.l_env_freq)
-                        l_env_mag_db = 20*log10(h.lower_env(h.f_segment == h.l_env_freq) + eps);
-                        r_env_mag_db = 20*log10(h.lower_env(h.f_segment == h.r_env_freq) + eps);
+                        l_env_mag_db = 20*log10(max(h.lower_env(h.f_segment == h.l_env_freq), 1e-12));
+                        r_env_mag_db = 20*log10(max(h.lower_env(h.f_segment == h.r_env_freq), 1e-12));
                         plot(ax, [h.l_env_freq, h.r_env_freq], [l_env_mag_db, r_env_mag_db], 's', ...
                             'MarkerEdgeColor', [0.4 0.9 0.4], 'MarkerFaceColor', [0.2 0.7 0.2], 'MarkerSize', 8, ...
                             'DisplayName', sprintf('%s Envelope BW: %.1f Hz', lbl, h.env_bw));

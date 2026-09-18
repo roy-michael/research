@@ -167,36 +167,43 @@ classdef BandwidthTracker
         out.main_bw = out.r_freq - out.l_freq;
         out.target_mag = noise_floor;
         
-        % 5. Lower Envelope Zerocrossing Detection
-        % Compute the envelope from the RAW magnitude so it hugs the true signal valleys
-        valleys_idx = find(islocalmin(mag_segment));
-        if isempty(valleys_idx) || valleys_idx(1) > 1
-            valleys_idx = [1; valleys_idx];
-        end
-        if valleys_idx(end) < length(mag_segment)
-            valleys_idx = [valleys_idx; length(mag_segment)];
-        end
-        lower_env = interp1(valleys_idx, mag_segment(valleys_idx), 1:length(mag_segment), 'linear')';
+        % 5. Lower Envelope Zerocrossing Detection (Hilbert Analytic Envelope)
+        mag_col = mag_segment(:);
+        trend = movmedian(mag_col, 41);
+        ac_signal = mag_col - trend;
         
-        % Smooth the envelope slightly to prevent extreme micro-jaggedness from raw noise
-        lower_env = smoothdata(lower_env, 'gaussian', 5);
+        % Hilbert transform with symmetric padding to avoid boundary artifacts
+        pad_len = length(ac_signal);
+        ac_padded = [flipud(ac_signal); ac_signal; flipud(ac_signal)];
+        env_padded = abs(hilbert(ac_padded));
+        analytic_env = env_padded(pad_len+1 : 2*pad_len);
+        analytic_env = smoothdata(analytic_env, 'gaussian', 11);
         
-        % Find intersection of lower envelope and NOISE FLOOR around the peak
-        % Right side
-        r_env_idx = length(mag_segment);
-        for i = pk_idx+1:length(mag_segment)
-            if lower_env(i) <= noise_floor * 1.05
-                r_env_idx = i;
-                break;
-            end
+        % True lower envelope is the trend minus the analytical envelope
+        lower_env = trend - analytic_env;
+        if isrow(mag_segment)
+            lower_env = lower_env';
         end
-        % Left side
-        l_env_idx = 1;
-        for i = pk_idx-1:-1:1
-            if lower_env(i) <= noise_floor * 1.05
-                l_env_idx = i;
-                break;
-            end
+        
+        is_touching = mag_segment <= lower_env;
+        
+        % Find Right Boundary Intersection
+        right_side = is_touching(pk_idx:end);
+        right_crossings = find(right_side);
+        if ~isempty(right_crossings)
+            r_env_idx = pk_idx + right_crossings(1) - 1;
+        else
+            [~, temp_idx] = min(abs(mag_segment(pk_idx:end) - lower_env(pk_idx:end)));
+            r_env_idx = pk_idx + temp_idx - 1;
+        end
+        
+        % Find Left Boundary Intersection
+        left_side = is_touching(1:pk_idx);
+        left_crossings = find(left_side);
+        if ~isempty(left_crossings)
+            l_env_idx = left_crossings(end);
+        else
+            [~, l_env_idx] = min(abs(mag_segment(1:pk_idx) - lower_env(1:pk_idx)));
         end
         
         out.l_env_freq = f_segment(l_env_idx);
