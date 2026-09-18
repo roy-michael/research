@@ -167,25 +167,17 @@ classdef BandwidthTracker
         out.main_bw = out.r_freq - out.l_freq;
         out.target_mag = noise_floor;
         
-        % 5. Lower Envelope Zerocrossing Detection (Hilbert Analytic Envelope)
-        mag_col = mag_segment(:);
-        trend = movmedian(mag_col, 41);
-        ac_signal = mag_col - trend;
+        % 5. Lower Envelope Zerocrossing Detection (MATLAB Envelope Peak Method)
+        mag_db_col = 20 * log10(mag_segment(:) + eps);
         
-        % Hilbert transform with symmetric padding to avoid boundary artifacts
-        pad_len = length(ac_signal);
-        ac_padded = [flipud(ac_signal); ac_signal; flipud(ac_signal)];
-        env_padded = abs(hilbert(ac_padded));
-        analytic_env = env_padded(pad_len+1 : 2*pad_len);
-        analytic_env = smoothdata(analytic_env, 'gaussian', 11);
+        % Smooth the signal to remove high-frequency micro-valleys
+        smoothed_signal = smoothdata(mag_db_col, 'gaussian', 15);
         
-        % True lower envelope is the trend minus the analytical envelope
-        lower_env = trend - analytic_env;
-        if isrow(mag_segment)
-            lower_env = lower_env';
-        end
+        % Compute the lower envelope using MATLAB's built-in peak method
+        [~, lower_env_db] = envelope(smoothed_signal, 10, 'peak');
         
-        is_touching = mag_segment <= lower_env;
+        % Add slight epsilon for numeric touching stability
+        is_touching = smoothed_signal <= lower_env_db + 0.1;
         
         % Find Right Boundary Intersection
         right_side = is_touching(pk_idx:end);
@@ -193,7 +185,7 @@ classdef BandwidthTracker
         if ~isempty(right_crossings)
             r_env_idx = pk_idx + right_crossings(1) - 1;
         else
-            [~, temp_idx] = min(abs(mag_segment(pk_idx:end) - lower_env(pk_idx:end)));
+            [~, temp_idx] = min(abs(smoothed_signal(pk_idx:end) - lower_env_db(pk_idx:end)));
             r_env_idx = pk_idx + temp_idx - 1;
         end
         
@@ -203,12 +195,18 @@ classdef BandwidthTracker
         if ~isempty(left_crossings)
             l_env_idx = left_crossings(end);
         else
-            [~, l_env_idx] = min(abs(mag_segment(1:pk_idx) - lower_env(1:pk_idx)));
+            [~, l_env_idx] = min(abs(smoothed_signal(1:pk_idx) - lower_env_db(1:pk_idx)));
         end
         
         out.l_env_freq = f_segment(l_env_idx);
         out.r_env_freq = f_segment(r_env_idx);
         out.env_bw = out.r_env_freq - out.l_env_freq;
+        
+        % Convert back to linear for consistent output structure
+        lower_env = 10.^(lower_env_db / 20);
+        if isrow(mag_segment)
+            lower_env = lower_env';
+        end
         out.lower_env = lower_env;
         end
 
