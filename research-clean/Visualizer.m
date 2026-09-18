@@ -144,7 +144,7 @@ classdef Visualizer
         c_text = [0.92 0.94 0.97];
         c_grid = [0.20 0.24 0.32];
         
-        figure('Name', 'Figure 2: Dominant Frequency Watershed Bandwidth (250ms Center Slice)', ...
+        figure('Name', 'Figure 2: Dominant Frequency Bandwidth (Watershed vs Envelope) - 250ms Center Slice', ...
             'Color', c_bg, 'Position', [60, 80, 1500, 580]);
         
         for k = 1:num_data
@@ -171,19 +171,37 @@ classdef Visualizer
                 l_mag_db = 20*log10(h.mag_segment(h.f_segment == h.l_freq) + eps);
                 r_mag_db = 20*log10(h.mag_segment(h.f_segment == h.r_freq) + eps);
         
-                % Plot Adaptive Base Intersections
+                % Plot Adaptive Base Intersections (Watershed)
                 plot(ax, [h.l_freq, h.r_freq], [l_mag_db, r_mag_db], 'd', ...
                     'MarkerEdgeColor', [1.0 0.2 0.2], 'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 8, ...
-                    'DisplayName', sprintf('%s Base BW: %.1f Hz', lbl, h.main_bw));
+                    'DisplayName', sprintf('%s Watershed BW: %.1f Hz', lbl, h.main_bw));
+                    
+                % Plot Lower Envelope
+                if isfield(h, 'lower_env') && ~isempty(h.lower_env)
+                    plot(ax, h.f_segment, 20*log10(h.lower_env+eps), 'Color', [0.4 0.9 0.4], 'LineWidth', 1.2, 'LineStyle', '-', ...
+                        'DisplayName', 'Lower Envelope (Valley Hugging)');
+                        
+                    if isfield(h, 'l_env_freq') && ~isnan(h.l_env_freq)
+                        l_env_mag_db = 20*log10(h.lower_env(h.f_segment == h.l_env_freq) + eps);
+                        r_env_mag_db = 20*log10(h.lower_env(h.f_segment == h.r_env_freq) + eps);
+                        plot(ax, [h.l_env_freq, h.r_env_freq], [l_env_mag_db, r_env_mag_db], 's', ...
+                            'MarkerEdgeColor', [0.4 0.9 0.4], 'MarkerFaceColor', [0.2 0.7 0.2], 'MarkerSize', 8, ...
+                            'DisplayName', sprintf('%s Envelope BW: %.1f Hz', lbl, h.env_bw));
+                    end
+                end
         
                 % Plot Peak Marker
                 plot(ax, h.main_f, 20*log10(h.main_mag+eps), 'v', ...
                     'MarkerFaceColor', [0.20 0.90 0.55], 'MarkerEdgeColor', 'none', 'MarkerSize', 8, ...
                     'HandleVisibility', 'off');
         
-                title(ax, sprintf('%s: Watershed Peak Detection\nMain Peak = %0.1f Hz | Base BW = %0.1f Hz', ...
-                    r.meta.name, h.main_f, h.main_bw), ...
-                    'FontSize', 10.5, 'FontWeight', 'bold', 'Color', c_text);
+                title_str = sprintf('%s: Watershed vs Envelope Bandwidth\nMain Peak = %0.1f Hz | Watershed BW = %0.1f Hz', ...
+                    r.meta.name, h.main_f, h.main_bw);
+                if isfield(h, 'env_bw') && ~isnan(h.env_bw)
+                    title_str = sprintf('%s | Env BW = %0.1f Hz', title_str, h.env_bw);
+                end
+                
+                title(ax, title_str, 'FontSize', 10.5, 'FontWeight', 'bold', 'Color', c_text);
             else
                 title(ax, sprintf('%s: Peak Not Found', r.meta.name), ...
                     'FontSize', 10.5, 'FontWeight', 'bold', 'Color', c_text);
