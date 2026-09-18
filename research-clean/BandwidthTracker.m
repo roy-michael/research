@@ -119,8 +119,7 @@ classdef BandwidthTracker
 
             % Robust Heuristic: Dynamic prominence threshold based on peak's elevation above noise floor
             peak_elevation_db = 20*log10(pk_mag_smooth+eps) - 20*log10(noise_floor+eps);
-            dynamic_prom_db = max(5.0, 0.40 * peak_elevation_db); % At least 5 dB, or 40% of elevation
-            prominence_threshold = pk_mag_smooth * (1 - 10^(-dynamic_prom_db/20));
+            dynamic_prom_db = max(3.0, 0.15 * peak_elevation_db); % At least 3 dB, or 15% of elevation
 
             % Right side expansion
             r_idx = pk_idx;
@@ -133,7 +132,7 @@ classdef BandwidthTracker
                 end
 
                 % Condition: Signal pooled into a valley and is rising again significantly
-                if (val - min_seen_right) > prominence_threshold
+                if 20*log10((val+eps) / (min_seen_right+eps)) > dynamic_prom_db
                     break; % r_idx remains at the valley minimum
                 end
             end
@@ -149,7 +148,7 @@ classdef BandwidthTracker
                 end
 
                 % Condition: Signal pooled into a valley and is rising again significantly
-                if (val - min_seen_left) > prominence_threshold
+                if 20*log10((val+eps) / (min_seen_left+eps)) > dynamic_prom_db
                     break; % l_idx remains at the valley minimum
                 end
             end
