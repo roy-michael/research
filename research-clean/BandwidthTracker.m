@@ -132,13 +132,7 @@ classdef BandwidthTracker
                     r_idx = i;
                 end
 
-                % Condition A: Signal decayed to the local noise floor
-                if val <= noise_floor * 1.05
-                    r_idx = i;
-                    break;
-                end
-
-                % Condition B: Signal pooled into a valley and is rising again significantly
+                % Condition: Signal pooled into a valley and is rising again significantly
                 if (val - min_seen_right) > prominence_threshold
                     break; % r_idx remains at the valley minimum
                 end
@@ -154,13 +148,7 @@ classdef BandwidthTracker
                     l_idx = i;
                 end
 
-                % Condition A: Signal decayed to the local noise floor
-                if val <= noise_floor * 1.05
-                    l_idx = i;
-                    break;
-                end
-
-                % Condition B: Signal pooled into a valley and is rising again significantly
+                % Condition: Signal pooled into a valley and is rising again significantly
                 if (val - min_seen_left) > prominence_threshold
                     break; % l_idx remains at the valley minimum
                 end
