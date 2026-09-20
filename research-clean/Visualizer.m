@@ -4,12 +4,12 @@ classdef Visualizer
 
         function render_spectral_and_cfar_figures(results, cfg)
             num_data = length(results);
-            c_bg   = [0.07 0.09 0.13];
-            c_ax   = [0.10 0.12 0.18];
-            c_text = [0.92 0.94 0.97];
-            c_grid = [0.20 0.24 0.32];
-            c_psd  = [0.20 0.82 1.00];  % Cyan
-            c_amb  = [0.50 0.55 0.65];  % Steel Gray
+            c_bg   = [0.082 0.133 0.263]; % Deep Navy
+            c_ax   = [0.050 0.080 0.160]; % Darker Navy
+            c_text = [0.918 0.941 0.965]; % Pale Blue-Grey
+            c_grid = [0.325 0.467 0.569]; % Muted Blue
+            c_psd  = [0.220 0.659 0.631]; % Turquoise/Teal
+            c_amb  = [0.961 0.690 0.255]; % Yellow/Orange
 
             figure('Name', 'Figure 1: Macro-Lobe Watershed & Ambient Baseline', ...
                 'Color', c_bg, 'Position', [30, 40, 1600, 470]);
@@ -78,6 +78,10 @@ classdef Visualizer
                 legend(ax_top, 'Location', 'northeast', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], ...
                     'EdgeColor', c_grid, 'FontSize', 7.5);
             end
+
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig1_MacroLobe_Watershed.png'), 'Resolution', 300);
+            end
         end
 
 
@@ -86,10 +90,10 @@ classdef Visualizer
 
         function render_spectrogram_figures(results, cfg)
             num_data = length(results);
-            c_bg   = [0.07 0.09 0.13];
-            c_ax   = [0.10 0.12 0.18];
-            c_text = [0.92 0.94 0.97];
-            c_grid = [0.20 0.24 0.32];
+            c_bg   = [0.082 0.133 0.263];
+            c_ax   = [0.050 0.080 0.160];
+            c_text = [0.918 0.941 0.965];
+            c_grid = [0.325 0.467 0.569];
 
             figure('Name', 'Figure 3: 2D Time-Frequency Spectrograms with Dominant Lobe Boundaries', ...
                 'Color', c_bg, 'Position', [90, 120, 1500, 600]);
@@ -135,6 +139,10 @@ classdef Visualizer
 
 
             end
+
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig3_2D_Spectrograms.png'), 'Resolution', 300);
+            end
         end
 
         % MODULE 10: DIAGNOSTIC REPORTING & CONSOLE OUTPUT
@@ -142,10 +150,10 @@ classdef Visualizer
 
         function render_dominant_watershed_figures(results, cfg)
             num_data = length(results);
-            c_bg   = [0.07 0.09 0.13];
-            c_ax   = [0.10 0.12 0.18];
-            c_text = [0.92 0.94 0.97];
-            c_grid = [0.20 0.24 0.32];
+            c_bg   = [0.082 0.133 0.263];
+            c_ax   = [0.050 0.080 0.160];
+            c_text = [0.918 0.941 0.965];
+            c_grid = [0.325 0.467 0.569];
 
             figure('Name', 'Figure 2: Dominant Frequency Watershed Bandwidth (250ms Center Slice)', ...
                 'Color', c_bg, 'Position', [60, 80, 1500, 580]);
@@ -198,6 +206,10 @@ classdef Visualizer
                     'EdgeColor', c_grid, 'FontSize', 8);
 
             end
+
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig2_Dominant_Watershed_BW.png'), 'Resolution', 300);
+            end
         end
 
         % MODULE 9D: FIGURE 4 - BANDWIDTH DISTRIBUTION HISTOGRAMS
@@ -209,10 +221,10 @@ classdef Visualizer
                 return;
             end
 
-            c_bg   = [0.07 0.09 0.13];
-            c_ax   = [0.10 0.12 0.18];
-            c_text = [0.92 0.94 0.97];
-            c_grid = [0.20 0.24 0.32];
+            c_bg   = [0.082 0.133 0.263];
+            c_ax   = [0.050 0.080 0.160];
+            c_text = [0.918 0.941 0.965];
+            c_grid = [0.325 0.467 0.569];
 
             figure('Name', 'Figure 4: Watershed Main Peak Base Bandwidth & Fairness Distribution', ...
                 'Color', c_bg, 'Position', [120, 160, 1500, 500]);
@@ -243,17 +255,7 @@ classdef Visualizer
                     c = colors(mod(k-1, size(colors,1))+1, :);
                     ec = edge_colors(mod(k-1, size(edge_colors,1))+1, :);
                     fill(ax1, xi_val, f_val, c, 'FaceAlpha', 0.5, ...
-                        'EdgeColor', ec, 'LineWidth', 2, 'DisplayName', [results{k}.meta.name ' (Watershed)']);
-                end
-
-                % Lower Envelope Zerocrossing BW
-                data_env = results{k}.slice_bw.all_env_bws;
-                data_env = data_env(isfinite(data_env) & data_env > 0);
-                if ~isempty(data_env)
-                    [f_val_env, xi_val_env] = ksdensity(data_env, 'Bandwidth', bw_kde);
-                    c = colors(mod(k-1, size(colors,1))+1, :);
-                    plot(ax1, xi_val_env, f_val_env, '--', 'Color', c, 'LineWidth', 2, ...
-                        'DisplayName', [results{k}.meta.name ' (Envelope)']);
+                        'EdgeColor', ec, 'LineWidth', 2, 'DisplayName', [results{k}.meta.name]);
                 end
             end
 
@@ -269,24 +271,24 @@ classdef Visualizer
                 'GridColor', c_grid, 'LineWidth', 1.0);
             hold(ax2, 'on'); grid(ax2, 'on');
 
+            line_styles = {'-', '--', '-.', ':'};
+            markers = {'o', 's', '^', 'd', 'v', '>', '<', 'p', 'h'};
             for k = 1:num_data
                 win_sizes = results{k}.slice_bw.fairness_window_sec;
                 fair = results{k}.slice_bw.all_tib;
                 if ~isempty(win_sizes) && ~isempty(fair)
+                    % Add a tiny visual jitter to separate perfectly overlapping lines (like SUEX and SEACRAFT)
+                    jitter = (k-1) * 0.003;
                     c = colors(mod(k-1, size(colors,1))+1, :);
-                    plot(ax2, win_sizes, fair, '-o', 'Color', c, 'LineWidth', 2, 'MarkerSize', 5, ...
-                        'DisplayName', [results{k}.meta.name ' (TiB Watershed)']);
-                end
-                fair_env = results{k}.slice_bw.all_env_tib;
-                if ~isempty(win_sizes) && ~isempty(fair_env)
-                    c = colors(mod(k-1, size(colors,1))+1, :);
-                    plot(ax2, win_sizes, fair_env, '--o', 'Color', c, 'LineWidth', 1.5, 'MarkerSize', 5, ...
-                        'DisplayName', [results{k}.meta.name ' (TiB Envelope)']);
+                    ls = line_styles{mod(k-1, length(line_styles))+1};
+                    mk = markers{mod(k-1, length(markers))+1};
+                    plot(ax2, win_sizes, fair + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', 2.5 - 0.5*k, 'MarkerSize', 5, ...
+                        'DisplayName', [results{k}.meta.name]);
                 end
             end
             ylabel(ax2, 'Mean Time-in-Band (TiB)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
             ylim(ax2, [0, 1.05]);
-            title(ax2, 'TiB Stability vs. Window Size N', ...
+            title(ax2, 'Mean Time-in-Band Stability', ...
                 'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
             xlabel(ax2, 'Window Size N (seconds)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
             legend(ax2, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
@@ -301,19 +303,26 @@ classdef Visualizer
                 win_sizes = results{k}.slice_bw.fairness_window_sec;
                 ent = results{k}.slice_bw.all_entropy;
                 if ~isempty(win_sizes) && ~isempty(ent)
+                    % Add a tiny visual jitter to separate perfectly overlapping lines
+                    jitter = (k-1) * 0.003;
                     c = colors(mod(k-1, size(colors,1))+1, :);
-                    plot(ax3, win_sizes, 1 - ent, '-s', 'Color', c, 'LineWidth', 2, 'MarkerSize', 5, ...
-                        'DisplayName', [results{k}.meta.name ' (Entropy Watershed)']);
+                    ls = line_styles{mod(k-1, length(line_styles))+1};
+                    mk = markers{mod(k-1, length(markers))+1};
+                    plot(ax3, win_sizes, 1 - ent + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', 2.5 - 0.5*k, 'MarkerSize', 5, ...
+                        'DisplayName', [results{k}.meta.name]);
                 end
             end
             ylabel(ax3, 'Stability (1 - H_{norm})', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
             ylim(ax3, [0, 1.05]);
 
-            title(ax3, 'Entropy Stability vs. Window Size N', ...
+            title(ax3, 'Entropy Stability', ...
                 'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
             xlabel(ax3, 'Window Size N (seconds)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
             legend(ax3, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
 
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig4_BW_Distribution.png'), 'Resolution', 300);
+            end
         end
 
         % MODULE 9E: FIGURE 5 - OUTLIER SIGNAL SEGMENTS
@@ -321,10 +330,10 @@ classdef Visualizer
 
         function render_outlier_figures(results, cfg)
             num_data = length(results);
-            c_bg   = [0.07 0.09 0.13];
-            c_ax   = [0.10 0.12 0.18];
-            c_text = [0.92 0.94 0.97];
-            c_grid = [0.20 0.24 0.32];
+            c_bg   = [0.082 0.133 0.263];
+            c_ax   = [0.050 0.080 0.160];
+            c_text = [0.918 0.941 0.965];
+            c_grid = [0.325 0.467 0.569];
 
             figure('Name', 'Figure 5: Outlier Signal Segments (Furthest from Mean BW)', ...
                 'Color', c_bg, 'Position', [150, 180, 1600, 470]);
@@ -364,13 +373,6 @@ classdef Visualizer
                 plot(ax, f_seg, mag_db, 'Color', [0.20 0.82 1.00], 'LineWidth', 1.2, ...
                     'DisplayName', sprintf('Slice %d (BW: %.1f Hz)', outlier_slice.slice_idx, outlier_slice.main_bw));
 
-                % Plot Lower Envelope
-                if isfield(outlier_slice, 'lower_env') && ~isempty(outlier_slice.lower_env)
-                    env_db = 20 * log10(outlier_slice.lower_env + eps);
-                    plot(ax, f_seg, env_db, ':', 'Color', [0.8 0.6 0.2], 'LineWidth', 1.5, ...
-                        'DisplayName', sprintf('Lower Envelope (BW: %.1f Hz)', outlier_slice.env_bw));
-                end
-
                 % Plot Noise Floor
                 yline(ax, nf_db, 'Color', [0.8 0.4 0.4], 'LineStyle', '--', 'LineWidth', 1.2, ...
                     'DisplayName', 'Ambient Noise Floor');
@@ -381,19 +383,15 @@ classdef Visualizer
                 plot(ax, outlier_slice.r_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
                     'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
 
-                % Markers for Envelope BW
-                if isfield(outlier_slice, 'l_env_freq') && ~isnan(outlier_slice.l_env_freq)
-                    plot(ax, outlier_slice.l_env_freq, target_mag_db, 's', 'MarkerEdgeColor', [0.8 0.6 0.2], ...
-                        'MarkerFaceColor', [0.8 0.6 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
-                    plot(ax, outlier_slice.r_env_freq, target_mag_db, 's', 'MarkerEdgeColor', [0.8 0.6 0.2], ...
-                        'MarkerFaceColor', [0.8 0.6 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
-                end
-
                 title(ax, sprintf('%s: Outlier Slice (Dev: %.1f Hz from Mean %.1f Hz)', r.meta.name, abs(outlier_slice.main_bw - mean_bw), mean_bw), ...
                     'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
                 xlabel(ax, 'Frequency (Hz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
                 ylabel(ax, 'Magnitude (dB)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
                 legend(ax, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
+            end
+
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig5_Outlier_Segments.png'), 'Resolution', 300);
             end
         end
 

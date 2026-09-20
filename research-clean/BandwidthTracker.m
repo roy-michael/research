@@ -2,34 +2,32 @@ classdef BandwidthTracker
     % Handles dynamic time-domain tracking and Jain's fairness metrics.
     methods (Static)
 
-        function out = compute_watershed_slice_bandwidth(signal, fs, dom_lobe, slice_dur_sec, fairness_win, smooth_method, smooth_window, tol_hz)
+        function out = compute_watershed_slice_bandwidth(signal, fs, dom_lobe, cfg)
         if isempty(signal)
             out = struct('found', false, 'all_main_bws', [], 'all_fairness', []);
             return;
         end
         
+        slice_dur_sec = cfg.slice_dur_sec;
         slice_len = floor(fs * slice_dur_sec);
         total_samples = length(signal);
         num_slices = floor(total_samples / slice_len);
         
         all_main_bws = [];
-        all_env_bws = [];
         slice_outputs = cell(num_slices, 1);
         for i = 1:num_slices
             idx = (i-1)*slice_len + (1:slice_len);
             sig_slice = signal(idx);
-            slice_out = BandwidthTracker.compute_single_slice_Watershed_bandwidth(sig_slice, fs, dom_lobe, smooth_method, smooth_window);
+            slice_out = BandwidthTracker.compute_single_slice_Watershed_bandwidth(sig_slice, fs, dom_lobe, cfg);
             slice_out.slice_idx = i;
             slice_outputs{i} = slice_out;
             if slice_out.found && isfinite(slice_out.main_bw)
                 all_main_bws = [all_main_bws; slice_out.main_bw];
-                all_env_bws = [all_env_bws; slice_out.env_bw];
             end
         end
         
         total_time_sec = num_slices * slice_dur_sec;
-        [win_sizes, all_tib, all_entropy] = BandwidthTracker.compute_stability_vs_window(all_main_bws, slice_dur_sec, total_time_sec, tol_hz);
-        [~, all_env_tib, all_env_entropy] = BandwidthTracker.compute_stability_vs_window(all_env_bws, slice_dur_sec, total_time_sec, tol_hz);
+        [win_sizes, all_tib, all_entropy] = BandwidthTracker.compute_stability_vs_window(all_main_bws, slice_dur_sec, total_time_sec, cfg.tib_tolerance_hz);
         
         % Extract Time-Domain Slice Centered on Midpoint for detailed visualization
         center_idx = round(total_samples / 2);
@@ -41,19 +39,16 @@ classdef BandwidthTracker
             sig_slice_center = [sig_slice_center; zeros(slice_len - length(sig_slice_center), 1)];
         end
         
-        out = BandwidthTracker.compute_single_slice_Watershed_bandwidth(sig_slice_center, fs, dom_lobe, smooth_method, smooth_window);
+        out = BandwidthTracker.compute_single_slice_Watershed_bandwidth(sig_slice_center, fs, dom_lobe, cfg);
         out.all_main_bws = all_main_bws;
-        out.all_env_bws = all_env_bws;
         out.fairness_window_sec = win_sizes;
         out.all_tib = all_tib;
         out.all_entropy = all_entropy;
-        out.all_env_tib = all_env_tib;
-        out.all_env_entropy = all_env_entropy;
         out.slice_outputs = slice_outputs;
         end
 
 
-        function out = compute_single_slice_Watershed_bandwidth(sig_slice, fs, dom_lobe, smooth_method, smooth_window)
+        function out = compute_single_slice_Watershed_bandwidth(sig_slice, fs, dom_lobe, cfg)
         out = struct('found', false, 'main_bw', NaN, 'f_segment', [], 'mag_segment', [], ...
             'noise_floor', NaN, 'main_f', NaN, 'main_mag', NaN, ...
             'l_freq', NaN, 'r_freq', NaN);
@@ -81,15 +76,15 @@ classdef BandwidthTracker
         end
         
         % Smooth the raw segmented signal before bandwidth detection
-        if strcmpi(smooth_method, 'welch')
-            N = smooth_window;
+        if strcmpi(cfg.bw_smooth_method, 'welch')
+            N = cfg.bw_smooth_window;
             if mod(N, 2) == 0; N = N + 1; end % Ensure odd length for symmetry
             n = (-(N-1)/2 : (N-1)/2)';
             w = 1 - (n / ((N-1)/2)).^2;
             w = w / sum(w); % normalize to preserve energy
             mag_segment = conv(mag_segment, w, 'same');
         else
-            mag_segment = smoothdata(mag_segment, smooth_method, smooth_window);
+            mag_segment = smoothdata(mag_segment, cfg.bw_smooth_method, cfg.bw_smooth_window);
         end
         
         % Smooth linear magnitude for peak/valley detection stability (redundant now, kept for variable compatibility)
@@ -119,34 +114,52 @@ classdef BandwidthTracker
         out.main_mag = pk_mag;
         % 4. Topographic Watershed Expansion (Water Drop Algorithm)
         % We expand outwards from the peak. The boundary is reached when the "water"
-        % settles into a basin. A basin is defined by either:
-        %   a) Hitting the local noise floor.
-        %   b) Reaching a valley minimum and then the signal rises again by a prominence.
+        % settles into a basin. A basin is defined by a local minimum (valley) where:
+        %   a) The signal rises out of the valley by a dynamically tapered prominence
+        %   b) OR the valley has dropped below the ambient noise floor
         
-        % Robust Heuristic: Dynamic prominence threshold based on peak's elevation above noise floor
+        % Calculate macroscopic lobe width to inform Topographic Prominence constraint.
+        % Narrow tonal signals (DVPs) get razor-thin prominence (~2.5 dB) to stop on skirts (30-40 Hz).
+        % Wide multi-harmonic signals (Motorboats) get wide prominence (~8.0 dB) to capture entire mountain.
+        macro_bw = dom_lobe.f_end - dom_lobe.f_start;
+        width_factor = min(1.0, max(0.0, (macro_bw - 50) / 100)); % 0 at <=50Hz, 1 at >=150Hz
+        
+        % Scale max prominence smoothly between 2.5 dB and cfg max (8.0 dB)
+        adaptive_max_prom_db = 2.5 + width_factor * (cfg.watershed_prom_max_db - 2.5);
+        
+        % Dynamic prominence threshold based on peak's elevation above noise floor
         peak_elevation_db = 20*log10(pk_mag_smooth+eps) - 20*log10(noise_floor+eps);
-        dynamic_prom_db = max(5.0, 0.40 * peak_elevation_db); % At least 5 dB, or 40% of elevation
-        prominence_threshold = pk_mag_smooth * (1 - 10^(-dynamic_prom_db/20));
+        
+        % Apply adaptive cap to track wide lobes while aggressively clipping narrow DVP skirts
+        dynamic_prom_db = min(adaptive_max_prom_db, max(cfg.watershed_prom_min_db, cfg.watershed_prom_ratio * peak_elevation_db)); 
+        % If adaptive max is lower than min (e.g. 2.5 < 3.0), enforce the adaptive max.
+        dynamic_prom_db = min(dynamic_prom_db, adaptive_max_prom_db); 
+        
+        prom_linear_ratio = 10^(dynamic_prom_db/20);
         
         % Right side expansion
         r_idx = pk_idx;
         min_seen_right = mag_smooth(pk_idx);
         for i = pk_idx+1 : length(mag_smooth)
             val = mag_smooth(i);
+            
+            % Track the lowest point seen so far
             if val < min_seen_right
                 min_seen_right = val;
                 r_idx = i;
             end
-        
-            % Condition A: Signal decayed to the local noise floor
-            if val <= noise_floor * 1.05
-                r_idx = i;
-                break;
-            end
-        
-            % Condition B: Signal pooled into a valley and is rising again significantly
-            if (val - min_seen_right) > prominence_threshold
-                break; % r_idx remains at the valley minimum
+            
+            % Are we currently rising out of the valley located at min_seen_right?
+            if val > min_seen_right
+                % Stop if it rises by prominence
+                if val > min_seen_right * prom_linear_ratio
+                    break; % r_idx remains perfectly at the valley
+                end
+                
+                % Hybrid Fallback: Stop at first valley once firmly below the noise floor
+                if min_seen_right <= noise_floor * cfg.watershed_noise_fallback_margin
+                    break;
+                end
             end
         end
         
@@ -155,20 +168,24 @@ classdef BandwidthTracker
         min_seen_left = mag_smooth(pk_idx);
         for i = pk_idx-1 : -1 : 1
             val = mag_smooth(i);
+            
+            % Track the lowest point seen so far
             if val < min_seen_left
                 min_seen_left = val;
                 l_idx = i;
             end
-        
-            % Condition A: Signal decayed to the local noise floor
-            if val <= noise_floor * 1.05
-                l_idx = i;
-                break;
-            end
-        
-            % Condition B: Signal pooled into a valley and is rising again significantly
-            if (val - min_seen_left) > prominence_threshold
-                break; % l_idx remains at the valley minimum
+            
+            % Are we currently rising out of the valley located at min_seen_left?
+            if val > min_seen_left
+                % Stop if it rises by prominence
+                if val > min_seen_left * prom_linear_ratio
+                    break; % l_idx remains perfectly at the valley
+                end
+                
+                % Hybrid Fallback: Stop at first valley once firmly below the noise floor
+                if min_seen_left <= noise_floor * cfg.watershed_noise_fallback_margin
+                    break;
+                end
             end
         end
         
@@ -176,43 +193,6 @@ classdef BandwidthTracker
         out.r_freq = f_segment(r_idx);
         out.main_bw = out.r_freq - out.l_freq;
         out.target_mag = noise_floor;
-        
-        % 5. Lower Envelope Zerocrossing Detection
-        % Compute the envelope from the RAW magnitude so it hugs the true signal valleys
-        valleys_idx = find(islocalmin(mag_segment));
-        if isempty(valleys_idx) || valleys_idx(1) > 1
-            valleys_idx = [1; valleys_idx];
-        end
-        if valleys_idx(end) < length(mag_segment)
-            valleys_idx = [valleys_idx; length(mag_segment)];
-        end
-        lower_env = interp1(valleys_idx, mag_segment(valleys_idx), 1:length(mag_segment), 'linear')';
-        
-        % Smooth the envelope slightly to prevent extreme micro-jaggedness from raw noise
-        lower_env = smoothdata(lower_env, 'gaussian', 5);
-        
-        % Find intersection of lower envelope and NOISE FLOOR around the peak
-        % Right side
-        r_env_idx = length(mag_segment);
-        for i = pk_idx+1:length(mag_segment)
-            if lower_env(i) <= noise_floor * 1.05
-                r_env_idx = i;
-                break;
-            end
-        end
-        % Left side
-        l_env_idx = 1;
-        for i = pk_idx-1:-1:1
-            if lower_env(i) <= noise_floor * 1.05
-                l_env_idx = i;
-                break;
-            end
-        end
-        
-        out.l_env_freq = f_segment(l_env_idx);
-        out.r_env_freq = f_segment(r_env_idx);
-        out.env_bw = out.r_env_freq - out.l_env_freq;
-        out.lower_env = lower_env;
         end
 
         function [window_sizes_sec, mean_tib, mean_entropy] = compute_stability_vs_window(bw_array, slice_dur_sec, total_time_sec, tol_hz)

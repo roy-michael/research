@@ -20,14 +20,16 @@ clear; close all; clc;
 % Defines all filepaths, frequency bounds, and algorithmic constants.
 cfg = struct();
 
-
-
 % Directory hierarchy
 base_dir = 'D:\RoyStudies\Recordings';
+cfg.output_dir = fullfile(pwd, 'output_plots');
+if ~exist(cfg.output_dir, 'dir')
+    mkdir(cfg.output_dir);
+end
 dir_hear_my_ship = fullfile(base_dir, 'hear_my_ship', 'V1', 'Motor Boats');
 dir_haifa        = fullfile(base_dir, '20250805_Haifa_bay_LME', 'extracted');
 dir_croatia      = fullfile(base_dir, 'Croatia', 'Ocean Sonics', '2407_1_600m');
-dir_cruise       = fullfile(base_dir, 'DepartmentalCruise-2025-06-12', 'icListen', 'wav')
+dir_cruise       = fullfile(base_dir, 'DepartmentalCruise-2025-06-12', 'icListen', 'wav');
 % Dataset definitions with passband boundaries
 cfg.datasets = struct(...
     'name',   {'Motorboat', ...
@@ -58,6 +60,13 @@ cfg.fairness_window = 5;      % Window size for rolling Jain's fairness index
 cfg.tib_tolerance_hz = 10;    % Tolerance for Time-in-Band stability metric (Hz)
 cfg.bw_smooth_method = 'welch';    % Smoothing method for segmented signal before BW detection
 cfg.bw_smooth_window = 5;          % Window size for smoothing the segmented signal
+
+% Dynamic Watershed Expansion Parameters
+cfg.watershed_prom_max_db = 8.0;   % Maximum prominence drop allowed before boundary (dB)
+cfg.watershed_prom_min_db = 3.0;   % Minimum prominence drop allowed before boundary (dB)
+cfg.watershed_prom_ratio = 0.40;   % Multiplier scaling prominence with peak elevation
+cfg.watershed_noise_fallback_margin = 0.90; % Margin below noise floor for hybrid boundary (linear ratio)
+
 num_datasets = length(cfg.datasets);
 analysis_results = cell(num_datasets, 1);
 
@@ -80,8 +89,8 @@ for k = 1:num_datasets
 
     % 4. Direct Time-Domain Watershed Bandwidth on 250ms Slices
     slice_bw = BandwidthTracker.compute_watershed_slice_bandwidth(audio_sig, fs_actual, ...
-        dom_lobe, cfg.slice_dur_sec, cfg.fairness_window, cfg.bw_smooth_method, cfg.bw_smooth_window, cfg.tib_tolerance_hz);
-    cfg.tib_tolerance_hz = 10;    % Tolerance for Time-in-Band stability metric (Hz)
+        dom_lobe, cfg);
+
 
     % 5. Time-Frequency 2D Spectrogram Computation
     [t_spec, f_spec, p_spec_db] = SpectralEngine.compute_spectrogram_matrix(audio_sig, fs_actual, ...
