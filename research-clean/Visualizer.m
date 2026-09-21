@@ -126,8 +126,8 @@ classdef Visualizer
 
                 % Overlay Dominant Macro-Lobe Boundaries
                 dom = r.dom_lobe;
-                yline(ax, dom.f_start / 1000, 'Color', [1.0 0.0 1.0], 'LineStyle', '--', 'LineWidth', 1.4);
-                yline(ax, dom.f_end   / 1000, 'Color', [1.0 0.0 1.0], 'LineStyle', '--', 'LineWidth', 1.4);
+                yline(ax, dom.f_start / 1000, 'Color', [1.0 0.0 1.0], 'LineStyle', '--', 'LineWidth', 1.5);
+                yline(ax, dom.f_end   / 1000, 'Color', [1.0 0.0 1.0], 'LineStyle', '--', 'LineWidth', 1.5);
 
                 xlabel(ax, 'Time (s)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
                 ylabel(ax, 'Frequency (kHz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
