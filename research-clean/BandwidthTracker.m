@@ -27,7 +27,7 @@ classdef BandwidthTracker
         end
         
         total_time_sec = num_slices * slice_dur_sec;
-        [win_sizes, all_tib, all_entropy] = BandwidthTracker.compute_stability_vs_window(all_main_bws, slice_dur_sec, total_time_sec, cfg.tib_tolerance_hz);
+        [win_sizes, all_tib, all_entropy, all_fairness] = BandwidthTracker.compute_stability_vs_window(all_main_bws, slice_dur_sec, total_time_sec, cfg.tib_tolerance_hz);
         
         % Extract Time-Domain Slice Centered on Midpoint for detailed visualization
         center_idx = round(total_samples / 2);
@@ -44,6 +44,7 @@ classdef BandwidthTracker
         out.fairness_window_sec = win_sizes;
         out.all_tib = all_tib;
         out.all_entropy = all_entropy;
+        out.all_fairness = all_fairness;
         out.slice_outputs = slice_outputs;
         end
 
@@ -119,7 +120,7 @@ classdef BandwidthTracker
         %   b) OR the valley has dropped below the ambient noise floor
         
         % Calculate macroscopic lobe width to inform Topographic Prominence constraint.
-        % Narrow tonal signals (DVPs) get razor-thin prominence (~2.5 dB) to stop on skirts (30-40 Hz).
+        % Narrow tonal signals (DPVs) get razor-thin prominence (~2.5 dB) to stop on skirts (30-40 Hz).
         % Wide multi-harmonic signals (Motorboats) get wide prominence (~8.0 dB) to capture entire mountain.
         macro_bw = dom_lobe.f_end - dom_lobe.f_start;
         width_factor = min(1.0, max(0.0, (macro_bw - 50) / 100)); % 0 at <=50Hz, 1 at >=150Hz
@@ -130,7 +131,7 @@ classdef BandwidthTracker
         % Dynamic prominence threshold based on peak's elevation above noise floor
         peak_elevation_db = 20*log10(pk_mag_smooth+eps) - 20*log10(noise_floor+eps);
         
-        % Apply adaptive cap to track wide lobes while aggressively clipping narrow DVP skirts
+        % Apply adaptive cap to track wide lobes while aggressively clipping narrow DPV skirts
         dynamic_prom_db = min(adaptive_max_prom_db, max(cfg.watershed_prom_min_db, cfg.watershed_prom_ratio * peak_elevation_db)); 
         % If adaptive max is lower than min (e.g. 2.5 < 3.0), enforce the adaptive max.
         dynamic_prom_db = min(dynamic_prom_db, adaptive_max_prom_db); 
@@ -195,7 +196,7 @@ classdef BandwidthTracker
         out.target_mag = noise_floor;
         end
 
-        function [window_sizes_sec, mean_tib, mean_entropy] = compute_stability_vs_window(bw_array, slice_dur_sec, total_time_sec, tol_hz)
+        function [window_sizes_sec, mean_tib, mean_entropy, mean_fairness] = compute_stability_vs_window(bw_array, slice_dur_sec, total_time_sec, tol_hz)
         bw_array = medfilt1(bw_array, max(3, round(5 / slice_dur_sec)));
         
         min_window_sec = 2;
@@ -204,12 +205,14 @@ classdef BandwidthTracker
             window_sizes_sec = [];
             mean_tib = [];
             mean_entropy = [];
+            mean_fairness = [];
             return;
         end
         
         window_sizes_sec = min_window_sec:2:max_window_sec;
         mean_tib = zeros(size(window_sizes_sec));
         mean_entropy = zeros(size(window_sizes_sec));
+        mean_fairness = zeros(size(window_sizes_sec));
         
         fs_samples = 1 / slice_dur_sec;
         T = length(bw_array);
@@ -230,6 +233,7 @@ classdef BandwidthTracker
             
             tib_blocks = zeros(1, num_blocks);
             ent_blocks = zeros(1, num_blocks);
+            fair_blocks = zeros(1, num_blocks);
             
             for b = 1:num_blocks
                 block_data = bw_array((b - 1) * N + 1 : b * N);
@@ -239,6 +243,7 @@ classdef BandwidthTracker
                 if isempty(block_data)
                     tib_blocks(b) = NaN;
                     ent_blocks(b) = NaN;
+                    fair_blocks(b) = NaN;
                     continue;
                 end
                 
@@ -257,10 +262,20 @@ classdef BandwidthTracker
                     H_max = log2(length(counts));
                     ent_blocks(b) = H / H_max;
                 end
+                
+                % 3. Jain's Fairness
+                sum_val = sum(block_data);
+                sum_sq_val = sum(block_data.^2);
+                if sum_sq_val > 0
+                    fair_blocks(b) = (sum_val^2) / (length(block_data) * sum_sq_val);
+                else
+                    fair_blocks(b) = NaN;
+                end
             end
             
             mean_tib(idx) = mean(tib_blocks, 'omitnan');
             mean_entropy(idx) = mean(ent_blocks, 'omitnan');
+            mean_fairness(idx) = mean(fair_blocks, 'omitnan');
         end
         end
 

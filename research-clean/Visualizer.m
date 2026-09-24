@@ -77,6 +77,11 @@ classdef Visualizer
                     'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
                 legend(ax_top, 'Location', 'northeast', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], ...
                     'EdgeColor', c_grid, 'FontSize', 7.5);
+                
+                if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                    safe_name = regexprep(r.meta.name, '[^\w'']', '_');
+                    exportgraphics(ax_top, fullfile(cfg.output_dir, sprintf('Fig1_MacroLobe_%s.png', safe_name)), 'Resolution', 300);
+                end
             end
 
             if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
@@ -137,7 +142,10 @@ classdef Visualizer
                 legend(ax, 'Lobe Boundaries', 'Location', 'northwest', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], ...
                     'EdgeColor', c_grid, 'FontSize', 7.5);
 
-
+                if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                    safe_name = regexprep(r.meta.name, '[^\w'']', '_');
+                    exportgraphics(ax, fullfile(cfg.output_dir, sprintf('Fig3_Spectrogram_%s.png', safe_name)), 'Resolution', 300);
+                end
             end
 
             if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
@@ -205,6 +213,10 @@ classdef Visualizer
                 legend(ax, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], ...
                     'EdgeColor', c_grid, 'FontSize', 8);
 
+                if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                    safe_name = regexprep(r.meta.name, '[^\w'']', '_');
+                    exportgraphics(ax, fullfile(cfg.output_dir, sprintf('Fig2_Dominant_Watershed_BW_%s.png', safe_name)), 'Resolution', 300);
+                end
             end
 
             if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
@@ -227,10 +239,10 @@ classdef Visualizer
             c_grid = [0.325 0.467 0.569];
 
             figure('Name', 'Figure 4: Watershed Main Peak Base Bandwidth & Fairness Distribution', ...
-                'Color', c_bg, 'Position', [120, 160, 1500, 500]);
+                'Color', c_bg, 'Position', [50, 160, 1800, 500]);
 
             % --- Subplot 1: Bandwidth Distribution ---
-            ax1 = subplot(1, 3, 1);
+            ax1 = subplot(1, 4, 1);
             set(ax1, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
                 'GridColor', c_grid, 'LineWidth', 1.0);
             hold(ax1, 'on'); grid(ax1, 'on');
@@ -266,7 +278,7 @@ classdef Visualizer
             legend(ax1, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
 
             % --- Subplot 2: TiB Stability ---
-            ax2 = subplot(1, 3, 2);
+            ax2 = subplot(1, 4, 2);
             set(ax2, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
                 'GridColor', c_grid, 'LineWidth', 1.0);
             hold(ax2, 'on'); grid(ax2, 'on');
@@ -294,7 +306,7 @@ classdef Visualizer
             legend(ax2, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
 
             % --- Subplot 3: Entropy Stability ---
-            ax3 = subplot(1, 3, 3);
+            ax3 = subplot(1, 4, 3);
             set(ax3, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
                 'GridColor', c_grid, 'LineWidth', 1.0);
             hold(ax3, 'on'); grid(ax3, 'on');
@@ -320,7 +332,38 @@ classdef Visualizer
             xlabel(ax3, 'Window Size N (seconds)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
             legend(ax3, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
 
+            % --- Subplot 4: Jain's Fairness Index ---
+            ax4 = subplot(1, 4, 4);
+            set(ax4, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
+                'GridColor', c_grid, 'LineWidth', 1.0);
+            hold(ax4, 'on'); grid(ax4, 'on');
+
+            for k = 1:num_data
+                win_sizes = results{k}.slice_bw.fairness_window_sec;
+                fair = results{k}.slice_bw.all_fairness;
+                if ~isempty(win_sizes) && ~isempty(fair)
+                    % Add a tiny visual jitter to separate perfectly overlapping lines
+                    jitter = (k-1) * 0.003;
+                    c = colors(mod(k-1, size(colors,1))+1, :);
+                    ls = line_styles{mod(k-1, length(line_styles))+1};
+                    mk = markers{mod(k-1, length(markers))+1};
+                    plot(ax4, win_sizes, fair + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', 2.5 - 0.5*k, 'MarkerSize', 5, ...
+                        'DisplayName', [results{k}.meta.name]);
+                end
+            end
+            ylabel(ax4, 'Jain''s Fairness Index', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+            ylim(ax4, [0, 1.05]);
+
+            title(ax4, 'Jain''s Fairness', ...
+                'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
+            xlabel(ax4, 'Window Size N (seconds)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+            legend(ax4, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
+
             if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                exportgraphics(ax1, fullfile(cfg.output_dir, 'Fig4_Subplot1_Distribution.png'), 'Resolution', 300);
+                exportgraphics(ax2, fullfile(cfg.output_dir, 'Fig4_Subplot2_TiB.png'), 'Resolution', 300);
+                exportgraphics(ax3, fullfile(cfg.output_dir, 'Fig4_Subplot3_Entropy.png'), 'Resolution', 300);
+                exportgraphics(ax4, fullfile(cfg.output_dir, 'Fig4_Subplot4_Fairness.png'), 'Resolution', 300);
                 exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig4_BW_Distribution.png'), 'Resolution', 300);
             end
         end
@@ -388,6 +431,11 @@ classdef Visualizer
                 xlabel(ax, 'Frequency (Hz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
                 ylabel(ax, 'Magnitude (dB)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
                 legend(ax, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
+
+                if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                    safe_name = regexprep(r.meta.name, '[^\w'']', '_');
+                    exportgraphics(ax, fullfile(cfg.output_dir, sprintf('Fig5_Outlier_Segment_%s.png', safe_name)), 'Resolution', 300);
+                end
             end
 
             if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
@@ -435,6 +483,54 @@ classdef Visualizer
         end
 
         % MODULE 9B: FIGURE 2 - DOMINANT FREQUENCY BANDWIDTH (WATERSHED)
+
+        function render_welch_dominant_frequency(results, cfg)
+            num_data = length(results);
+            c_bg   = [0.082 0.133 0.263];
+            c_ax   = [0.050 0.080 0.160];
+            c_text = [0.918 0.941 0.965];
+            c_grid = [0.325 0.467 0.569];
+            c_psd  = [0.220 0.659 0.631];
+            c_dom  = [1.0 0.2 0.2];
+
+            figure('Name', 'Figure 6: Welch PSD and Dominant Frequency', ...
+                'Color', c_bg, 'Position', [200, 220, 1600, 470]);
+
+            for k = 1:num_data
+                r = results{k};
+
+                ax = subplot(1, num_data, k);
+                set(ax, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
+                    'GridColor', c_grid, 'GridAlpha', 0.5, 'LineWidth', 1.0);
+                hold(ax, 'on'); grid(ax, 'on');
+
+                plot(ax, r.f_grid, r.psd_db, 'Color', c_psd, 'LineWidth', 1.2, 'DisplayName', 'Welch PSD');
+
+                dom = r.dom_lobe;
+                plot(ax, dom.peak_freq, dom.peak_psd, 'v', ...
+                    'MarkerFaceColor', c_dom, 'MarkerEdgeColor', 'none', 'MarkerSize', 10, ...
+                    'DisplayName', sprintf('Dominant Freq (%.1f Hz)', dom.peak_freq));
+                
+                xline(ax, dom.peak_freq, 'Color', c_dom, 'LineStyle', ':', 'LineWidth', 1.2, 'HandleVisibility', 'off');
+
+                xlim(ax, [r.meta.f_low, r.meta.f_high]);
+                ylabel(ax, 'PSD (dB/Hz)', 'FontSize', 9, 'FontWeight', 'bold', 'Color', c_text);
+                xlabel(ax, 'Frequency (Hz)', 'FontSize', 9, 'FontWeight', 'bold', 'Color', c_text);
+                title(ax, sprintf('%s\nWelch PSD & Dominant Frequency', r.meta.name), ...
+                    'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+                legend(ax, 'Location', 'northeast', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], ...
+                    'EdgeColor', c_grid, 'FontSize', 8);
+
+                if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                    safe_name = regexprep(r.meta.name, '[^\w'']', '_');
+                    exportgraphics(ax, fullfile(cfg.output_dir, sprintf('Fig6_Welch_Dominant_Freq_%s.png', safe_name)), 'Resolution', 300);
+                end
+            end
+
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig6_Welch_Dominant_Freq.png'), 'Resolution', 300);
+            end
+        end
 
     end
 end
