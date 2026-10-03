@@ -21,14 +21,15 @@ clear; close all; clc;
 cfg = struct();
 
 % Directory hierarchy
-base_dir = 'C:\Users\Roy\Recordings';
+% base_dir = 'C:\Users\Roy\Recordings';
+base_dir = 'D:\RoyStudies\Recordings';
 cfg.output_dir = fullfile(pwd, 'output_plots');
 if ~exist(cfg.output_dir, 'dir')
     mkdir(cfg.output_dir);
 end
 dir_hear_my_ship = fullfile(base_dir, 'hear_my_ship', 'V1', 'Motor Boats');
 dir_haifa        = fullfile(base_dir, '20250805_Haifa_bay_LME', 'extracted');
-dir_croatia      = fullfile(base_dir, 'Croatia', 'Ocean Sonics', '2407_1_600m');
+dir_croatia      = fullfile(base_dir, 'Croatia', 'wav', '2407_1_600m');
 dir_cruise       = fullfile(base_dir, 'DepartmentalCruise-2025-06-12', 'icListen', 'wav');
 % Dataset definitions with passband boundaries
 cfg.datasets = struct(...
