@@ -1,2 +1,5 @@
 workspace.mat
-scooter_analysis/output/
+scooter_analysis/output/*
+!scooter_analysis/output/comparison_fairness/
+!scooter_analysis/output/comparison_fairness/**
+!scooter_analysis/output/comparison_histograms.png

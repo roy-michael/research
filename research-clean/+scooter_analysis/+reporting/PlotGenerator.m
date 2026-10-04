@@ -11,6 +11,7 @@ classdef PlotGenerator
     %   scooter_analysis.reporting.PlotGenerator.ltsa(analyzer, out_path);
     %   scooter_analysis.reporting.PlotGenerator.spectrogram(sig, fs, base_time, cfg, out_path);
     %   scooter_analysis.reporting.PlotGenerator.comparison(analyzerA, analyzerB, out_path);
+    %   scooter_analysis.reporting.PlotGenerator.fairnessComparison(analyzers, out_dir);
     
     methods (Static)
         
@@ -221,6 +222,92 @@ classdef PlotGenerator
             grid on;
             
             scooter_analysis.reporting.PlotGenerator.safeExport(fig, out_path);
+        end
+        
+        
+        function fairnessComparison(varargin)
+            % fairnessComparison - Plot and export 4-panel bandwidth & fairness stability comparison.
+            %
+            % Generates:
+            %   1. Bandwidth Distribution Comparison (KDE)
+            %   2. Mean Time-in-Band (TiB) Stability
+            %   3. Entropy Stability (1 - H_norm)
+            %   4. Jain's Fairness Index vs Window Size
+            %
+            % Exactly as done in bandwidth_segment_lobe_floor_watershed.m.
+            %
+            % Usage:
+            %   PlotGenerator.fairnessComparison(analyzer)
+            %   PlotGenerator.fairnessComparison(analyzer, out_dir)
+            %   PlotGenerator.fairnessComparison(analyzerA, analyzerB, out_dir)
+            %   PlotGenerator.fairnessComparison({analyzerA, analyzerB}, out_dir)
+            %   PlotGenerator.fairnessComparison(results_cell, out_dir)
+            
+            if nargin == 0
+                return;
+            end
+            
+            firstArg = varargin{1};
+            out_dir = '';
+            results = {};
+            
+            if nargin >= 2 && isa(varargin{2}, 'scooter_analysis.pipeline.BatchAnalyzer')
+                % Two analyzers passed as (baA, baB, [out_dir])
+                analyzers = {varargin{1}, varargin{2}};
+                if nargin >= 3 && (ischar(varargin{3}) || isstring(varargin{3}))
+                    out_dir = char(varargin{3});
+                end
+                results = cell(length(analyzers), 1);
+                for k = 1:length(analyzers)
+                    results{k} = analyzers{k}.getFairnessResult();
+                end
+            elseif iscell(firstArg)
+                % Cell array passed: could be cell of BatchAnalyzers, FileResults, or result structs
+                if nargin >= 2 && (ischar(varargin{2}) || isstring(varargin{2}))
+                    out_dir = char(varargin{2});
+                end
+                results = cell(length(firstArg), 1);
+                for k = 1:length(firstArg)
+                    item = firstArg{k};
+                    if isa(item, 'scooter_analysis.pipeline.BatchAnalyzer')
+                        results{k} = item.getFairnessResult();
+                    elseif isa(item, 'scooter_analysis.results.FileResult')
+                        results{k} = item.getFairnessResult();
+                    elseif isstruct(item)
+                        results{k} = item;
+                    end
+                end
+            elseif isa(firstArg, 'scooter_analysis.pipeline.BatchAnalyzer')
+                if nargin >= 2 && (ischar(varargin{2}) || isstring(varargin{2}))
+                    out_dir = char(varargin{2});
+                else
+                    out_dir = fullfile(firstArg.OutputDir, 'fairness_comparison');
+                end
+                if length(firstArg.FileResults) > 1
+                    results = firstArg.getFileFairnessResults();
+                else
+                    results = {firstArg.getFairnessResult()};
+                end
+            elseif isa(firstArg, 'scooter_analysis.results.FileResult')
+                if nargin >= 2 && (ischar(varargin{2}) || isstring(varargin{2}))
+                    out_dir = char(varargin{2});
+                end
+                results = {firstArg.getFairnessResult()};
+            elseif isstruct(firstArg)
+                if nargin >= 2 && (ischar(varargin{2}) || isstring(varargin{2}))
+                    out_dir = char(varargin{2});
+                end
+                results = num2cell(firstArg);
+            end
+            
+            if length(results) < 2
+                fprintf('[PlotGenerator] fairnessComparison requires at least 2 datasets or files to compare.\n');
+                return;
+            end
+            
+            cfg_vis = struct();
+            cfg_vis.output_dir = out_dir;
+            Visualizer.render_bandwidth_distribution(results, cfg_vis);
         end
     end
     

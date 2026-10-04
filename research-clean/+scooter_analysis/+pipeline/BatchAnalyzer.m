@@ -129,6 +129,61 @@ classdef BatchAnalyzer < handle
                 end
             end
         end
+        
+        function bws = getAllSliceBandwidths(obj)
+            % Concatenate all fine-grained slice bandwidths across all segments in all files.
+            bws_cells = {};
+            for i = 1:length(obj.FileResults)
+                fr = obj.FileResults(i);
+                bws_cells{end+1} = fr.getAllSliceBandwidths();
+            end
+            bws = vertcat(bws_cells{:});
+        end
+        
+        function res = getFairnessResult(obj, max_window_sec)
+            % Build a result struct representing this entire dataset,
+            % compatible with Visualizer.render_bandwidth_distribution.
+            if nargin < 2 || isempty(max_window_sec)
+                max_window_sec = 60;
+            end
+            
+            bws = obj.getAllSliceBandwidths();
+            bws = bws(isfinite(bws) & bws > 0);
+            
+            slice_dur = obj.Config.bw_slice_dur_sec;
+            tol_hz = obj.Config.bw_tib_tolerance_hz;
+            total_time = min(length(bws) * slice_dur, max_window_sec);
+            
+            if total_time >= 2 && ~isempty(bws)
+                [win_sizes, all_tib, all_entropy, all_fairness] = ...
+                    BandwidthTracker.compute_stability_vs_window(bws, slice_dur, total_time, tol_hz);
+            else
+                win_sizes = [];
+                all_tib = [];
+                all_entropy = [];
+                all_fairness = [];
+            end
+            
+            res = struct();
+            res.meta.name = obj.DatasetName;
+            res.slice_bw.all_main_bws = bws;
+            res.slice_bw.fairness_window_sec = win_sizes;
+            res.slice_bw.all_tib = all_tib;
+            res.slice_bw.all_entropy = all_entropy;
+            res.slice_bw.all_fairness = all_fairness;
+        end
+        
+        function results = getFileFairnessResults(obj, max_window_sec)
+            % Build cell array of result structs, one per file in this analyzer.
+            if nargin < 2 || isempty(max_window_sec)
+                max_window_sec = 60;
+            end
+            num_files = length(obj.FileResults);
+            results = cell(num_files, 1);
+            for i = 1:num_files
+                results{i} = obj.FileResults(i).getFairnessResult(obj.FileResults(i).filename, max_window_sec);
+            end
+        end
     end
     
     
@@ -221,6 +276,10 @@ classdef BatchAnalyzer < handle
                 scooter_analysis.reporting.PlotGenerator.ltsa( ...
                     obj, fullfile(obj.OutputDir, 'cumulative_spectrogram.png'));
             end
+            if length(obj.FileResults) > 1
+                fairness_dir = fullfile(obj.OutputDir, 'fairness_comparison');
+                scooter_analysis.reporting.PlotGenerator.fairnessComparison(obj, fairness_dir);
+            end
         end
         
         
@@ -307,6 +366,11 @@ classdef BatchAnalyzer < handle
                 end
                 
                 obj.FileResults(end+1, 1) = fr;
+            end
+            
+            if length(obj.FileResults) > 1
+                fairness_dir = fullfile(obj.OutputDir, 'fairness_comparison');
+                scooter_analysis.reporting.PlotGenerator.fairnessComparison(obj, fairness_dir);
             end
         end
         

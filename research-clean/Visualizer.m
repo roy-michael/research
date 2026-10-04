@@ -228,6 +228,11 @@ classdef Visualizer
 
 
         function render_bandwidth_distribution(results, cfg)
+            if nargin < 2
+                cfg = struct();
+            elseif ischar(cfg) || isstring(cfg)
+                cfg = struct('output_dir', char(cfg));
+            end
             num_data = length(results);
             if num_data < 2
                 return;
@@ -294,7 +299,8 @@ classdef Visualizer
                     c = colors(mod(k-1, size(colors,1))+1, :);
                     ls = line_styles{mod(k-1, length(line_styles))+1};
                     mk = markers{mod(k-1, length(markers))+1};
-                    plot(ax2, win_sizes, fair + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', 2.5 - 0.5*k, 'MarkerSize', 5, ...
+                    lw = max(1.0, 2.5 - 0.3*k);
+                    plot(ax2, win_sizes, fair + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', lw, 'MarkerSize', 5, ...
                         'DisplayName', [results{k}.meta.name]);
                 end
             end
@@ -320,7 +326,8 @@ classdef Visualizer
                     c = colors(mod(k-1, size(colors,1))+1, :);
                     ls = line_styles{mod(k-1, length(line_styles))+1};
                     mk = markers{mod(k-1, length(markers))+1};
-                    plot(ax3, win_sizes, 1 - ent + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', 2.5 - 0.5*k, 'MarkerSize', 5, ...
+                    lw = max(1.0, 2.5 - 0.3*k);
+                    plot(ax3, win_sizes, 1 - ent + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', lw, 'MarkerSize', 5, ...
                         'DisplayName', [results{k}.meta.name]);
                 end
             end
@@ -347,7 +354,8 @@ classdef Visualizer
                     c = colors(mod(k-1, size(colors,1))+1, :);
                     ls = line_styles{mod(k-1, length(line_styles))+1};
                     mk = markers{mod(k-1, length(markers))+1};
-                    plot(ax4, win_sizes, fair + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', 2.5 - 0.5*k, 'MarkerSize', 5, ...
+                    lw = max(1.0, 2.5 - 0.3*k);
+                    plot(ax4, win_sizes, fair + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', lw, 'MarkerSize', 5, ...
                         'DisplayName', [results{k}.meta.name]);
                 end
             end
@@ -360,6 +368,9 @@ classdef Visualizer
             legend(ax4, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
 
             if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                if ~exist(cfg.output_dir, 'dir')
+                    mkdir(cfg.output_dir);
+                end
                 exportgraphics(ax1, fullfile(cfg.output_dir, 'Fig4_Subplot1_Distribution.png'), 'Resolution', 300);
                 exportgraphics(ax2, fullfile(cfg.output_dir, 'Fig4_Subplot2_TiB.png'), 'Resolution', 300);
                 exportgraphics(ax3, fullfile(cfg.output_dir, 'Fig4_Subplot3_Entropy.png'), 'Resolution', 300);

@@ -43,5 +43,59 @@ classdef FileResult
                 obj.f_grid = obj.segments(1).f_grid;
             end
         end
+        
+        function bws = getAllSliceBandwidths(obj)
+            % Concatenate all fine-grained slice bandwidths across segments.
+            bws_cells = {};
+            for s = 1:length(obj.segments)
+                if isfield(obj.segments(s).slice_bw, 'all_main_bws') && ...
+                        ~isempty(obj.segments(s).slice_bw.all_main_bws)
+                    bws_cells{end+1} = obj.segments(s).slice_bw.all_main_bws(:);
+                end
+            end
+            bws = vertcat(bws_cells{:});
+        end
+        
+        function res = getFairnessResult(obj, custom_name, max_window_sec)
+            % Build a result struct compatible with Visualizer.render_bandwidth_distribution
+            if nargin < 2 || isempty(custom_name)
+                custom_name = obj.filename;
+            end
+            if nargin < 3 || isempty(max_window_sec)
+                max_window_sec = 60;
+            end
+            
+            bws = obj.getAllSliceBandwidths();
+            bws = bws(isfinite(bws) & bws > 0);
+            
+            slice_dur = 0.500;
+            tol_hz = 10;
+            if ~isempty(obj.segments) && isfield(obj.segments(1).slice_bw, 'fairness_window_sec') && ...
+                    ~isempty(obj.segments(1).slice_bw.fairness_window_sec) && length(obj.segments) == 1
+                win_sizes = obj.segments(1).slice_bw.fairness_window_sec;
+                all_tib = obj.segments(1).slice_bw.all_tib;
+                all_entropy = obj.segments(1).slice_bw.all_entropy;
+                all_fairness = obj.segments(1).slice_bw.all_fairness;
+            else
+                total_time = min(length(bws) * slice_dur, max_window_sec);
+                if total_time >= 2 && ~isempty(bws)
+                    [win_sizes, all_tib, all_entropy, all_fairness] = ...
+                        BandwidthTracker.compute_stability_vs_window(bws, slice_dur, total_time, tol_hz);
+                else
+                    win_sizes = [];
+                    all_tib = [];
+                    all_entropy = [];
+                    all_fairness = [];
+                end
+            end
+            
+            res = struct();
+            res.meta.name = custom_name;
+            res.slice_bw.all_main_bws = bws;
+            res.slice_bw.fairness_window_sec = win_sizes;
+            res.slice_bw.all_tib = all_tib;
+            res.slice_bw.all_entropy = all_entropy;
+            res.slice_bw.all_fairness = all_fairness;
+        end
     end
 end
