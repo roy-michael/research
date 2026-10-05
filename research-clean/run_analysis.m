@@ -18,13 +18,15 @@ import scooter_analysis.config.AnalysisConfig
 import scooter_analysis.pipeline.BatchAnalyzer
 import scooter_analysis.reporting.PlotGenerator
 
+base_dir = 'C:\Users\Roy\Recordings';
+
 %% =====================================================================
 %  WORKFLOW 1: Haifa Bay - Batch Per-File Analysis
 %  (Replaces: batch_analyze_haifa_bay.m)
 % ======================================================================
 % cfg = AnalysisConfig.haifaBay();
 % ba = BatchAnalyzer( ...
-%     'D:\RoyStudies\Recordings\20250805_Haifa_bay_LME', cfg, ...
+%     fullfile(base_dir, '20250805_Haifa_bay_LME'), cfg, ...
 %     'Name', 'HaifaBay', 'Mode', 'per_file');
 % ba.run();
 
@@ -35,7 +37,7 @@ import scooter_analysis.reporting.PlotGenerator
 % ======================================================================
 % cfg = AnalysisConfig.croatia();
 % ba = BatchAnalyzer( ...
-%     'D:\RoyStudies\Recordings\Croatia\wav', cfg, ...
+%     fullfile(base_dir, 'Croatia\wav'), cfg, ...
 %     'Name', 'Croatia', 'Mode', 'per_file', 'Recursive', true);
 % ba.run();
 
@@ -46,7 +48,7 @@ import scooter_analysis.reporting.PlotGenerator
 % ======================================================================
 % cfg = AnalysisConfig.directory();
 % ba = BatchAnalyzer( ...
-%     'D:\RoyStudies\Recordings\DepartmentalCruise-2025-06-12\icListen\wav', cfg, ...
+%     fullfile(base_dir, 'DepartmentalCruise-2025-06-12\icListen\wav'), cfg, ...
 %     'Name', 'DirectoryBatch', 'Mode', 'per_file', 'Recursive', true);
 % ba.run();
 
@@ -58,7 +60,7 @@ import scooter_analysis.reporting.PlotGenerator
 % cfg = AnalysisConfig.singleFileDetailed();
 % cfg.enable_video = true;
 % ba = BatchAnalyzer( ...
-%     'D:\RoyStudies\Recordings\Croatia\wav\merged\merged_2207_colmar.wav', cfg, ...
+%     fullfile(base_dir, 'Croatia\wav\merged\merged_2207_colmar.wav'), cfg, ...
 %     'Name', 'SingleFile', 'Mode', 'single_file');
 % ba.run();
 
@@ -69,7 +71,7 @@ import scooter_analysis.reporting.PlotGenerator
 % ======================================================================
 % cfg = AnalysisConfig.cruise();
 % ba = BatchAnalyzer( ...
-%     'D:\RoyStudies\Recordings\DepartmentalCruise-2025-06-12\icListen\wav', cfg, ...
+%     fullfile(base_dir, 'DepartmentalCruise-2025-06-12\icListen\wav'), cfg, ...
 %     'Name', 'Cruise', 'Mode', 'concatenated');
 % ba.run();
 
@@ -80,7 +82,7 @@ import scooter_analysis.reporting.PlotGenerator
 % ======================================================================
 % cfg = AnalysisConfig.croatiaDatasets();
 % ba = BatchAnalyzer( ...
-%     'D:\RoyStudies\Recordings\Croatia\wav\merged', cfg, ...
+%     fullfile(base_dir, 'Croatia\wav\merged'), cfg, ...
 %     'Name', 'Croatia', 'Mode', 'per_file', ...
 %     'Subdatasets', {'merged_2207_colmar.wav', 'merged_2307_free.wav', 'merged_2407_1_600m.wav', 'merged_2407_2_snake.wav', 'merged_2507_1_1k.wav', 'merged_2507_2_joint.wav'});
 % ba.run();
@@ -92,7 +94,7 @@ import scooter_analysis.reporting.PlotGenerator
 % ======================================================================
 % cfg = AnalysisConfig.dominantFreq();
 % ba = BatchAnalyzer( ...
-%     'D:\RoyStudies\Recordings\Ashdod\scooter_exp\combined_scooter_perfect.wav', cfg, ...
+%     fullfile(base_dir, 'Ashdod\scooter_exp\combined_scooter_perfect.wav'), cfg, ...
 %     'Name', 'DominantFreq', 'Mode', 'single_file');
 % ba.run();
 
@@ -102,12 +104,16 @@ import scooter_analysis.reporting.PlotGenerator
 %  (Histograms & Fairness Comparison as in bandwidth_segment_lobe_floor_watershed.m)
 % ======================================================================
 cfg_h = AnalysisConfig.haifaBay();
-ba_h = BatchAnalyzer('D:\RoyStudies\Recordings\20250805_Haifa_bay_LME', cfg_h, ...
+cfg_h.segment_duration = 30;
+cfg_h.step_duration = 30;
+ba_h = BatchAnalyzer(fullfile(base_dir, '20250805_Haifa_bay_LME'), cfg_h, ...
     'Name', 'HaifaBay', 'Mode', 'per_file');
 ba_h.run();
 
 cfg_c = AnalysisConfig.croatia();
-ba_c = BatchAnalyzer('D:\RoyStudies\Recordings\Croatia\wav\merged', cfg_c, ...
+cfg_c.segment_duration = 30;
+cfg_c.step_duration = 30;
+ba_c = BatchAnalyzer(fullfile(base_dir, 'Croatia\wav\merged'), cfg_c, ...
     'Name', 'Croatia', 'Mode', 'per_file');
 ba_c.run();
 
@@ -120,6 +126,12 @@ PlotGenerator.comparison(ba_h, ba_c, ...
 %    (Figure 4: Distribution, TiB Stability, Entropy Stability, Jain's Fairness Index)
 PlotGenerator.fairnessComparison({ba_h, ba_c}, ...
     fullfile(out_base, 'comparison_fairness'));
+
+% 3. 20-Second Window Fairness Comparison (Custom Output)
+res_h_20 = ba_h.getFairnessResult(20);
+res_c_20 = ba_c.getFairnessResult(20);
+PlotGenerator.fairnessComparison({res_h_20, res_c_20}, ...
+    fullfile(out_base, 'comparison_fairness_20s'));
 
 
 %% =====================================================================
@@ -158,4 +170,4 @@ PlotGenerator.fairnessComparison({ba_h, ba_c}, ...
 % PlotGenerator.fairnessComparison(results, out_fairness);
 
 
-fprintf('Select a workflow by uncommenting the appropriate section above.\n');
+% fprintf('Select a workflow by uncommenting the appropriate section above.\n');
