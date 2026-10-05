@@ -89,8 +89,9 @@ classdef AudioLoader
                 return;
             end
             
-            % Sort by name for chronological order
-            [~, sort_idx] = sort({files.name});
+            % Sort by full path for hierarchical/chronological order
+            full_paths = fullfile({files.folder}, {files.name});
+            [~, sort_idx] = sort(full_paths);
             files = files(sort_idx);
             
             % Extract base time from first file
@@ -110,8 +111,22 @@ classdef AudioLoader
                     continue;
                 end
                 
+                if isfield(info, 'TotalSamples') && info.TotalSamples == 0
+                    fprintf('[AudioLoader] Skipping empty file (0 samples): %s\n', files(f_idx).name);
+                    continue;
+                end
+                
                 fs_orig = info.SampleRate;
-                raw = audioread(filepath);
+                try
+                    raw = audioread(filepath);
+                catch ME
+                    fprintf('[AudioLoader] WARNING: Failed to read %s: %s\n', files(f_idx).name, ME.message);
+                    continue;
+                end
+                
+                if isempty(raw)
+                    continue;
+                end
                 if size(raw, 2) > 1
                     raw = mean(raw, 2);
                 end

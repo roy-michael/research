@@ -64,9 +64,31 @@ classdef BandwidthTracker
         f_pos = f_axis(pos_mask);
         mag_pos = abs(sig_fft(pos_mask));
         
-        % Focus on the dominant macro-lobe frequency bounds + 50 Hz padding
-        f_start = max(0, dom_lobe.f_start - 50);
-        f_end   = min(fs/2, dom_lobe.f_end + 50);
+        % Focus on the dominant macro-lobe frequency bounds + 50 Hz padding,
+        % strictly clamped to the analysis passband [f_low, f_high]
+        f_min_bound = 0;
+        if isfield(cfg, 'f_low') && ~isempty(cfg.f_low)
+            f_min_bound = cfg.f_low;
+        end
+        f_max_bound = fs / 2;
+        if isfield(cfg, 'f_high') && ~isempty(cfg.f_high)
+            f_max_bound = min(fs / 2, cfg.f_high);
+        end
+        
+        macro_bw = dom_lobe.f_end - dom_lobe.f_start;
+        rel_width = macro_bw / max(10.0, dom_lobe.peak_freq);
+        if dom_lobe.peak_freq <= 250
+            % Low-frequency shipping band: multi-harmonic structure
+            width_factor = min(1.0, max(0.0, (macro_bw - 30) / 70));
+        else
+            % High-frequency tonal band (DPV scooters, AUVs: narrow fractional width)
+            width_factor = min(1.0, max(0.0, (rel_width - 0.35) / 0.40));
+        end
+        
+        % Adaptive padding around macro lobe
+        pad_hz = min(50, max(20, macro_bw * 0.4));
+        f_start = max(f_min_bound, dom_lobe.f_start - pad_hz);
+        f_end   = min(f_max_bound, dom_lobe.f_end + pad_hz);
         
         idx_mask = (f_pos >= f_start) & (f_pos <= f_end);
         f_segment = f_pos(idx_mask);
@@ -77,15 +99,16 @@ classdef BandwidthTracker
         end
         
         % Smooth the raw segmented signal before bandwidth detection
+        % Adaptive smoothing window: base window for narrow tones, up to 15 for wide multi-harmonic lobes
+        N = round(cfg.bw_smooth_window + width_factor * 10);
+        if mod(N, 2) == 0; N = N + 1; end % Ensure odd length for symmetry
         if strcmpi(cfg.bw_smooth_method, 'welch')
-            N = cfg.bw_smooth_window;
-            if mod(N, 2) == 0; N = N + 1; end % Ensure odd length for symmetry
             n = (-(N-1)/2 : (N-1)/2)';
             w = 1 - (n / ((N-1)/2)).^2;
             w = w / sum(w); % normalize to preserve energy
             mag_segment = conv(mag_segment, w, 'same');
         else
-            mag_segment = smoothdata(mag_segment, cfg.bw_smooth_method, cfg.bw_smooth_window);
+            mag_segment = smoothdata(mag_segment, cfg.bw_smooth_method, N);
         end
         
         % Smooth linear magnitude for peak/valley detection stability (redundant now, kept for variable compatibility)
@@ -119,12 +142,6 @@ classdef BandwidthTracker
         %   a) The signal rises out of the valley by a dynamically tapered prominence
         %   b) OR the valley has dropped below the ambient noise floor
         
-        % Calculate macroscopic lobe width to inform Topographic Prominence constraint.
-        % Narrow tonal signals (DPVs) get razor-thin prominence (~2.5 dB) to stop on skirts (30-40 Hz).
-        % Wide multi-harmonic signals (Motorboats) get wide prominence (~8.0 dB) to capture entire mountain.
-        macro_bw = dom_lobe.f_end - dom_lobe.f_start;
-        width_factor = min(1.0, max(0.0, (macro_bw - 50) / 100)); % 0 at <=50Hz, 1 at >=150Hz
-        
         % Scale max prominence smoothly between 2.5 dB and cfg max (8.0 dB)
         adaptive_max_prom_db = 2.5 + width_factor * (cfg.watershed_prom_max_db - 2.5);
         
@@ -138,6 +155,19 @@ classdef BandwidthTracker
         
         prom_linear_ratio = 10^(dynamic_prom_db/20);
         
+        % Relative Rebound parameters (Topological Persistence & Catchment Basin Dynamics)
+        rebound_ratio = 0.50;
+        if isfield(cfg, 'watershed_rebound_ratio') && ~isempty(cfg.watershed_rebound_ratio)
+            rebound_ratio = cfg.watershed_rebound_ratio;
+        end
+        % Scale rebound ratio for broad multi-harmonic lobes to allow inter-harmonic ripple
+        rebound_ratio = rebound_ratio + width_factor * 0.25;
+
+        min_dip_db = 1.50;
+        if isfield(cfg, 'watershed_min_dip_db') && ~isempty(cfg.watershed_min_dip_db)
+            min_dip_db = cfg.watershed_min_dip_db;
+        end
+
         % Right side expansion
         r_idx = pk_idx;
         min_seen_right = mag_smooth(pk_idx);
@@ -152,13 +182,24 @@ classdef BandwidthTracker
             
             % Are we currently rising out of the valley located at min_seen_right?
             if val > min_seen_right
-                % Stop if it rises by prominence
+                drop_db = 20*log10(pk_mag_smooth+eps) - 20*log10(min_seen_right+eps);
+                rise_db = 20*log10(val+eps) - 20*log10(min_seen_right+eps);
+
+                % Formal Relative Rebound Criterion:
+                % Stop if the valley is a genuine dip (>= min_dip_db) and rebounds by >= rebound_ratio of the dip
+                if (drop_db >= min_dip_db) && (rise_db >= rebound_ratio * drop_db)
+                    break; % r_idx remains perfectly at the valley
+                end
+
+                % Fallback 1: Stop if it rises by prominence cap
                 if val > min_seen_right * prom_linear_ratio
                     break; % r_idx remains perfectly at the valley
                 end
                 
-                % Hybrid Fallback: Stop at first valley once firmly below the noise floor
-                if min_seen_right <= noise_floor * cfg.watershed_noise_fallback_margin
+                % Fallback 2: Hybrid Fallback (Stop at first valley once firmly below noise floor)
+                % For wide multi-harmonic lobes, guard against premature stop on internal interference nulls inside dom_lobe:
+                is_past_lobe = (f_segment(i) >= dom_lobe.f_end);
+                if (is_past_lobe || width_factor == 0) && (min_seen_right <= noise_floor * cfg.watershed_noise_fallback_margin)
                     break;
                 end
             end
@@ -178,13 +219,24 @@ classdef BandwidthTracker
             
             % Are we currently rising out of the valley located at min_seen_left?
             if val > min_seen_left
-                % Stop if it rises by prominence
+                drop_db = 20*log10(pk_mag_smooth+eps) - 20*log10(min_seen_left+eps);
+                rise_db = 20*log10(val+eps) - 20*log10(min_seen_left+eps);
+
+                % Formal Relative Rebound Criterion:
+                % Stop if the valley is a genuine dip (>= min_dip_db) and rebounds by >= rebound_ratio of the dip
+                if (drop_db >= min_dip_db) && (rise_db >= rebound_ratio * drop_db)
+                    break; % l_idx remains perfectly at the valley
+                end
+
+                % Fallback 1: Stop if it rises by prominence cap
                 if val > min_seen_left * prom_linear_ratio
                     break; % l_idx remains perfectly at the valley
                 end
                 
-                % Hybrid Fallback: Stop at first valley once firmly below the noise floor
-                if min_seen_left <= noise_floor * cfg.watershed_noise_fallback_margin
+                % Fallback 2: Hybrid Fallback (Stop at first valley once firmly below noise floor)
+                % For wide multi-harmonic lobes, guard against premature stop on internal interference nulls inside dom_lobe:
+                is_past_lobe = (f_segment(i) <= dom_lobe.f_start);
+                if (is_past_lobe || width_factor == 0) && (min_seen_left <= noise_floor * cfg.watershed_noise_fallback_margin)
                     break;
                 end
             end

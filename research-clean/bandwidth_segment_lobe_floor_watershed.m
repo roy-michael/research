@@ -89,8 +89,11 @@ for k = 1:num_datasets
         SpectralEngine.segment_macro_lobes(psd_db, f_grid, df, cfg.prom_split_db);
 
     % 4. Direct Time-Domain Watershed Bandwidth on 250ms Slices
+    cfg_tracker = cfg;
+    cfg_tracker.f_low = d_meta.f_low;
+    cfg_tracker.f_high = d_meta.f_high;
     slice_bw = BandwidthTracker.compute_watershed_slice_bandwidth(audio_sig, fs_actual, ...
-        dom_lobe, cfg);
+        dom_lobe, cfg_tracker);
 
 
     % 5. Time-Frequency 2D Spectrogram Computation

@@ -184,6 +184,82 @@ classdef BatchAnalyzer < handle
                 results{i} = obj.FileResults(i).getFairnessResult(obj.FileResults(i).filename, max_window_sec);
             end
         end
+        
+        function res = getVisualizerResult(obj)
+            % Build a structured container representing this dataset for Visualizer
+            % (Fig 1 Macro-Lobe, Fig 2 Watershed BW, Fig 4 Fairness, Fig 6 Dominant Freq)
+            res = struct();
+            res.meta = struct('name', obj.DatasetName, ...
+                'f_low', obj.Config.f_low, 'f_high', obj.Config.f_high);
+            
+            if isempty(obj.FileResults)
+                res.f_grid = [];
+                res.psd_db = [];
+                res.macro_lobes = struct([]);
+                res.dom_lobe = struct('peak_freq', NaN, 'peak_psd', NaN, 'f_start', NaN, 'f_end', NaN, 'pct_energy', 0);
+                res.ocean_floor_smooth = [];
+                res.ocean_ambient_db = NaN;
+                res.slice_bw = struct('found', false, 'all_main_bws', [], ...
+                    'fairness_window_sec', [], 'all_tib', [], 'all_entropy', [], 'all_fairness', []);
+                return;
+            end
+            
+            % Find file and segment with highest peak PSD across the dataset
+            best_fr_idx = 1;
+            best_sr_idx = 1;
+            best_psd = -Inf;
+            
+            for fi = 1:length(obj.FileResults)
+                fr = obj.FileResults(fi);
+                if ~isempty(fr.segments)
+                    [max_p, s_idx] = max([fr.segments.peak_psd]);
+                    if max_p > best_psd
+                        best_psd = max_p;
+                        best_fr_idx = fi;
+                        best_sr_idx = s_idx;
+                    end
+                end
+            end
+            
+            if isinf(best_psd)
+                res.f_grid = [];
+                res.psd_db = [];
+                res.macro_lobes = struct([]);
+                res.dom_lobe = struct('peak_freq', NaN, 'peak_psd', NaN, 'f_start', NaN, 'f_end', NaN, 'pct_energy', 0);
+                res.ocean_floor_smooth = [];
+                res.ocean_ambient_db = NaN;
+                res.slice_bw = struct('found', false, 'all_main_bws', [], ...
+                    'fairness_window_sec', [], 'all_tib', [], 'all_entropy', [], 'all_fairness', []);
+                return;
+            end
+            
+            sr = obj.FileResults(best_fr_idx).segments(best_sr_idx);
+            
+            res.f_grid = sr.f_grid;
+            res.psd_db = sr.psd_db;
+            res.macro_lobes = sr.macro_lobes;
+            res.dom_lobe = sr.dom_lobe;
+            res.ocean_floor_smooth = sr.ocean_floor;
+            res.ocean_ambient_db = sr.ocean_ambient_db;
+            
+            % slice_bw containing both single-slice watershed and multi-slice fairness
+            res.slice_bw = sr.slice_bw;
+            fair_res = obj.getFairnessResult();
+            res.slice_bw.all_main_bws = fair_res.slice_bw.all_main_bws;
+            res.slice_bw.fairness_window_sec = fair_res.slice_bw.fairness_window_sec;
+            res.slice_bw.all_tib = fair_res.slice_bw.all_tib;
+            res.slice_bw.all_entropy = fair_res.slice_bw.all_entropy;
+            res.slice_bw.all_fairness = fair_res.slice_bw.all_fairness;
+        end
+        
+        function results = getFileVisualizerResults(obj)
+            % Build cell array of Visualizer containers, one per file
+            num_files = length(obj.FileResults);
+            results = cell(num_files, 1);
+            for i = 1:num_files
+                results{i} = obj.FileResults(i).getVisualizerResult(obj.FileResults(i).filename);
+            end
+        end
     end
     
     
@@ -213,11 +289,15 @@ classdef BatchAnalyzer < handle
             scooter_analysis.reporting.PlotGenerator.freqBandwidthTimeSeries(fr, file_out_dir);
             
             if obj.Config.enable_spectrogram
-                [sig, fs, base_time] = scooter_analysis.io.AudioLoader.loadFile( ...
-                    obj.DatasetPath, obj.Config.target_fs);
-                scooter_analysis.reporting.PlotGenerator.spectrogram( ...
-                    sig, fs, base_time, obj.Config, ...
-                    fullfile(file_out_dir, 'continuous_spectrogram.png'));
+                try
+                    [sig, fs, base_time] = scooter_analysis.io.AudioLoader.loadFile( ...
+                        obj.DatasetPath, obj.Config.target_fs);
+                    scooter_analysis.reporting.PlotGenerator.spectrogram( ...
+                        sig, fs, base_time, obj.Config, ...
+                        fullfile(file_out_dir, 'continuous_spectrogram.png'));
+                catch ME
+                    fprintf('[BatchAnalyzer] Warning: Failed to generate spectrogram for %s: %s\n', filename, ME.message);
+                end
             end
             
             if obj.Config.enable_video
@@ -287,7 +367,7 @@ classdef BatchAnalyzer < handle
             % Concatenate all files into one continuous signal and analyse.
             
             [sig, fs, base_time] = scooter_analysis.io.AudioLoader.loadAndConcatenate( ...
-                obj.DatasetPath, obj.Config.target_fs);
+                obj.DatasetPath, obj.Config.target_fs, obj.RecursiveSearch);
             
             if isempty(sig); return; end
             
@@ -304,9 +384,13 @@ classdef BatchAnalyzer < handle
             scooter_analysis.reporting.PlotGenerator.freqBandwidthTimeSeries(fr, obj.OutputDir);
             
             if obj.Config.enable_spectrogram
-                scooter_analysis.reporting.PlotGenerator.spectrogram( ...
-                    sig, fs, base_time, obj.Config, ...
-                    fullfile(obj.OutputDir, 'continuous_spectrogram.png'));
+                try
+                    scooter_analysis.reporting.PlotGenerator.spectrogram( ...
+                        sig, fs, base_time, obj.Config, ...
+                        fullfile(obj.OutputDir, 'continuous_spectrogram.png'));
+                catch ME
+                    fprintf('[BatchAnalyzer] Warning: Failed to generate continuous spectrogram: %s\n', ME.message);
+                end
             end
             
             if obj.Config.enable_video
@@ -340,7 +424,7 @@ classdef BatchAnalyzer < handle
                 if ~exist(ds_out_dir, 'dir'); mkdir(ds_out_dir); end
                 
                 [sig, fs, base_time] = scooter_analysis.io.AudioLoader.loadAndConcatenate( ...
-                    target_dir, obj.Config.target_fs);
+                    target_dir, obj.Config.target_fs, obj.RecursiveSearch);
                 
                 if isempty(sig); continue; end
                 

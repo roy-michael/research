@@ -3,6 +3,14 @@ classdef Visualizer
     methods (Static)
 
         function render_spectral_and_cfar_figures(results, cfg)
+            if nargin < 2
+                cfg = struct();
+            elseif ischar(cfg) || isstring(cfg)
+                cfg = struct('output_dir', char(cfg));
+            end
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir) && ~exist(cfg.output_dir, 'dir')
+                mkdir(cfg.output_dir);
+            end
             num_data = length(results);
             c_bg   = [0.082 0.133 0.263]; % Deep Navy
             c_ax   = [0.050 0.080 0.160]; % Darker Navy
@@ -157,6 +165,14 @@ classdef Visualizer
 
 
         function render_dominant_watershed_figures(results, cfg)
+            if nargin < 2
+                cfg = struct();
+            elseif ischar(cfg) || isstring(cfg)
+                cfg = struct('output_dir', char(cfg));
+            end
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir) && ~exist(cfg.output_dir, 'dir')
+                mkdir(cfg.output_dir);
+            end
             num_data = length(results);
             c_bg   = [0.082 0.133 0.263];
             c_ax   = [0.050 0.080 0.160];
@@ -177,18 +193,22 @@ classdef Visualizer
 
                 if h.found
                     plot(ax, h.f_segment, 20*log10(h.mag_segment+eps), 'Color', [0.75 0.80 0.88], 'LineWidth', 1.4, ...
-                        'DisplayName', 'Signal FFT Slice (0.25 s Hann @ Midpoint)');
+                        'DisplayName', 'Signal FFT Slice (Hann @ Midpoint)');
 
                     yline(ax, 20*log10(h.noise_floor+eps), 'Color', [1.00 0.78 0.25], 'LineWidth', 1.4, 'LineStyle', ':', ...
                         'DisplayName', 'Local Noise Floor');
 
-                    yline(ax, 20*log10(h.target_mag+eps), 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
-                        'DisplayName', 'Adaptive Intersection Threshold (Half Prominence)');
+                    if isfield(h, 'target_mag') && ~isnan(h.target_mag) && abs(h.target_mag - h.noise_floor) > 1e-3 * h.noise_floor
+                        yline(ax, 20*log10(h.target_mag+eps), 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
+                            'DisplayName', 'Adaptive Intersection Threshold (Half Prominence)');
+                    end
 
                     lbl = 'Main Peak';
 
-                    l_mag_db = 20*log10(h.mag_segment(h.f_segment == h.l_freq) + eps);
-                    r_mag_db = 20*log10(h.mag_segment(h.f_segment == h.r_freq) + eps);
+                    [~, l_idx] = min(abs(h.f_segment - h.l_freq));
+                    [~, r_idx] = min(abs(h.f_segment - h.r_freq));
+                    l_mag_db = 20*log10(h.mag_segment(l_idx) + eps);
+                    r_mag_db = 20*log10(h.mag_segment(r_idx) + eps);
 
                     % Plot Adaptive Base Intersections
                     plot(ax, [h.l_freq, h.r_freq], [l_mag_db, r_mag_db], 'd', ...
@@ -234,7 +254,20 @@ classdef Visualizer
                 cfg = struct('output_dir', char(cfg));
             end
             num_data = length(results);
-            if num_data < 2
+            if num_data < 1
+                return;
+            end
+            
+            has_data = false;
+            for k = 1:num_data
+                if isfield(results{k}, 'slice_bw') && isfield(results{k}.slice_bw, 'all_main_bws') && ...
+                        ~isempty(results{k}.slice_bw.all_main_bws)
+                    has_data = true;
+                    break;
+                end
+            end
+            if ~has_data
+                fprintf('[Visualizer] No bandwidth tracking data available for Figure 4.\n');
                 return;
             end
 
@@ -265,7 +298,10 @@ classdef Visualizer
 
             for k = 1:num_data
                 % Watershed Main Peak BW
-                data = results{k}.slice_bw.all_main_bws;
+                data = [];
+                if isfield(results{k}, 'slice_bw') && isfield(results{k}.slice_bw, 'all_main_bws')
+                    data = results{k}.slice_bw.all_main_bws;
+                end
                 data = data(isfinite(data) & data > 0);
                 if ~isempty(data)
                     [f_val, xi_val] = ksdensity(data, 'Bandwidth', bw_kde);
@@ -280,7 +316,7 @@ classdef Visualizer
                 'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
             xlabel(ax1, 'Bandwidth (Hz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
             ylabel(ax1, 'Probability Density', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-            legend(ax1, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
+            legend(ax1, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid, 'Interpreter', 'none');
 
             % --- Subplot 2: TiB Stability ---
             ax2 = subplot(1, 4, 2);
@@ -291,8 +327,13 @@ classdef Visualizer
             line_styles = {'-', '--', '-.', ':'};
             markers = {'o', 's', '^', 'd', 'v', '>', '<', 'p', 'h'};
             for k = 1:num_data
-                win_sizes = results{k}.slice_bw.fairness_window_sec;
-                fair = results{k}.slice_bw.all_tib;
+                win_sizes = []; fair = [];
+                if isfield(results{k}, 'slice_bw') && isfield(results{k}.slice_bw, 'fairness_window_sec')
+                    win_sizes = results{k}.slice_bw.fairness_window_sec;
+                end
+                if isfield(results{k}, 'slice_bw') && isfield(results{k}.slice_bw, 'all_tib')
+                    fair = results{k}.slice_bw.all_tib;
+                end
                 if ~isempty(win_sizes) && ~isempty(fair)
                     % Add a tiny visual jitter to separate perfectly overlapping lines (like SUEX and SEACRAFT)
                     jitter = (k-1) * 0.003;
@@ -309,7 +350,7 @@ classdef Visualizer
             title(ax2, 'Mean Time-in-Band Stability', ...
                 'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
             xlabel(ax2, 'Window Size N (seconds)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-            legend(ax2, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
+            legend(ax2, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid, 'Interpreter', 'none');
 
             % --- Subplot 3: Entropy Stability ---
             ax3 = subplot(1, 4, 3);
@@ -318,8 +359,13 @@ classdef Visualizer
             hold(ax3, 'on'); grid(ax3, 'on');
 
             for k = 1:num_data
-                win_sizes = results{k}.slice_bw.fairness_window_sec;
-                ent = results{k}.slice_bw.all_entropy;
+                win_sizes = []; ent = [];
+                if isfield(results{k}, 'slice_bw') && isfield(results{k}.slice_bw, 'fairness_window_sec')
+                    win_sizes = results{k}.slice_bw.fairness_window_sec;
+                end
+                if isfield(results{k}, 'slice_bw') && isfield(results{k}.slice_bw, 'all_entropy')
+                    ent = results{k}.slice_bw.all_entropy;
+                end
                 if ~isempty(win_sizes) && ~isempty(ent)
                     % Add a tiny visual jitter to separate perfectly overlapping lines
                     jitter = (k-1) * 0.003;
@@ -337,7 +383,7 @@ classdef Visualizer
             title(ax3, 'Entropy Stability', ...
                 'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
             xlabel(ax3, 'Window Size N (seconds)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-            legend(ax3, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
+            legend(ax3, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid, 'Interpreter', 'none');
 
             % --- Subplot 4: Jain's Fairness Index ---
             ax4 = subplot(1, 4, 4);
@@ -346,8 +392,13 @@ classdef Visualizer
             hold(ax4, 'on'); grid(ax4, 'on');
 
             for k = 1:num_data
-                win_sizes = results{k}.slice_bw.fairness_window_sec;
-                fair = results{k}.slice_bw.all_fairness;
+                win_sizes = []; fair = [];
+                if isfield(results{k}, 'slice_bw') && isfield(results{k}.slice_bw, 'fairness_window_sec')
+                    win_sizes = results{k}.slice_bw.fairness_window_sec;
+                end
+                if isfield(results{k}, 'slice_bw') && isfield(results{k}.slice_bw, 'all_fairness')
+                    fair = results{k}.slice_bw.all_fairness;
+                end
                 if ~isempty(win_sizes) && ~isempty(fair)
                     % Add a tiny visual jitter to separate perfectly overlapping lines
                     jitter = (k-1) * 0.003;
@@ -365,7 +416,7 @@ classdef Visualizer
             title(ax4, 'Jain''s Fairness', ...
                 'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
             xlabel(ax4, 'Window Size N (seconds)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-            legend(ax4, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
+            legend(ax4, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid, 'Interpreter', 'none');
 
             if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
                 if ~exist(cfg.output_dir, 'dir')
@@ -496,6 +547,14 @@ classdef Visualizer
         % MODULE 9B: FIGURE 2 - DOMINANT FREQUENCY BANDWIDTH (WATERSHED)
 
         function render_welch_dominant_frequency(results, cfg)
+            if nargin < 2
+                cfg = struct();
+            elseif ischar(cfg) || isstring(cfg)
+                cfg = struct('output_dir', char(cfg));
+            end
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir) && ~exist(cfg.output_dir, 'dir')
+                mkdir(cfg.output_dir);
+            end
             num_data = length(results);
             c_bg   = [0.082 0.133 0.263];
             c_ax   = [0.050 0.080 0.160];

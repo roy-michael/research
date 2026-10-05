@@ -111,9 +111,13 @@ classdef AudioCore
             conditioned_sig = conditioned_sig(1:target_samples);
         end
         
-        % DC offset removal and 20 Hz high-pass conditioning
+        % DC offset removal and high-pass conditioning (respecting passband minimum)
         conditioned_sig = conditioned_sig - mean(conditioned_sig);
-        [b_hp, a_hp] = butter(4, 20.0 / (fs_target / 2), 'high');
+        hp_freq = 20.0;
+        if isfield(d_meta, 'f_low') && ~isempty(d_meta.f_low) && d_meta.f_low > 20.0
+            hp_freq = d_meta.f_low;
+        end
+        [b_hp, a_hp] = butter(4, hp_freq / (fs_target / 2), 'high');
         conditioned_sig = filtfilt(b_hp, a_hp, conditioned_sig);
         end
         

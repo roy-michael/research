@@ -97,5 +97,56 @@ classdef FileResult
             res.slice_bw.all_entropy = all_entropy;
             res.slice_bw.all_fairness = all_fairness;
         end
+        
+        function res = getVisualizerResult(obj, custom_name)
+            % Build a structured container compatible with all Visualizer render methods
+            % (Fig 1 Macro-Lobe, Fig 2 Watershed BW, Fig 4 Fairness, Fig 6 Dominant Freq)
+            if nargin < 2 || isempty(custom_name)
+                custom_name = obj.filename;
+            end
+            
+            res = struct();
+            res.meta = struct('name', custom_name, 'f_low', 0, 'f_high', 2000);
+            
+            if isempty(obj.segments)
+                res.f_grid = [];
+                res.psd_db = [];
+                res.macro_lobes = struct([]);
+                res.dom_lobe = struct('peak_freq', NaN, 'peak_psd', NaN, 'f_start', NaN, 'f_end', NaN, 'pct_energy', 0);
+                res.ocean_floor_smooth = [];
+                res.ocean_ambient_db = NaN;
+                res.slice_bw = struct('found', false, 'all_main_bws', [], ...
+                    'fairness_window_sec', [], 'all_tib', [], 'all_entropy', [], 'all_fairness', []);
+                return;
+            end
+            
+            % Select segment with maximum peak PSD
+            [~, best_idx] = max([obj.segments.peak_psd]);
+            if isempty(best_idx) || isnan(best_idx)
+                best_idx = 1;
+            end
+            sr = obj.segments(best_idx);
+            
+            if ~isempty(sr.f_grid)
+                res.meta.f_low = min(sr.f_grid);
+                res.meta.f_high = max(sr.f_grid);
+            end
+            
+            res.f_grid = sr.f_grid;
+            res.psd_db = sr.psd_db;
+            res.macro_lobes = sr.macro_lobes;
+            res.dom_lobe = sr.dom_lobe;
+            res.ocean_floor_smooth = sr.ocean_floor;
+            res.ocean_ambient_db = sr.ocean_ambient_db;
+            
+            % slice_bw containing both single-slice watershed and multi-slice fairness
+            res.slice_bw = sr.slice_bw;
+            fair_res = obj.getFairnessResult(custom_name);
+            res.slice_bw.all_main_bws = fair_res.slice_bw.all_main_bws;
+            res.slice_bw.fairness_window_sec = fair_res.slice_bw.fairness_window_sec;
+            res.slice_bw.all_tib = fair_res.slice_bw.all_tib;
+            res.slice_bw.all_entropy = fair_res.slice_bw.all_entropy;
+            res.slice_bw.all_fairness = fair_res.slice_bw.all_fairness;
+        end
     end
 end

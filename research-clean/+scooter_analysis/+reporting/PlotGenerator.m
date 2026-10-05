@@ -12,6 +12,11 @@ classdef PlotGenerator
     %   scooter_analysis.reporting.PlotGenerator.spectrogram(sig, fs, base_time, cfg, out_path);
     %   scooter_analysis.reporting.PlotGenerator.comparison(analyzerA, analyzerB, out_path);
     %   scooter_analysis.reporting.PlotGenerator.fairnessComparison(analyzers, out_dir);
+    %   scooter_analysis.reporting.PlotGenerator.fairnessHistograms(analyzers, out_path);
+    %   scooter_analysis.reporting.PlotGenerator.dominantFrequency(analyzers, out_dir);
+    %   scooter_analysis.reporting.PlotGenerator.dominantWatershed(analyzers, out_dir);
+    %   scooter_analysis.reporting.PlotGenerator.macroLobeWatershed(analyzers, out_dir);
+    %   scooter_analysis.reporting.PlotGenerator.allWatershedPlots(analyzers, out_dir);
     
     methods (Static)
         
@@ -57,6 +62,11 @@ classdef PlotGenerator
             
             all_freqs = analyzer.getAllDomFreqs();
             all_bws = analyzer.getAllBandwidths();
+            
+            if isempty(all_freqs) && isempty(all_bws)
+                fprintf('[PlotGenerator] No frequency/bandwidth data available for overallHistograms.\n');
+                return;
+            end
             
             fig = figure('Name', 'Overall Distributions', ...
                 'Position', [100, 100, 1200, 500], 'Color', 'w', 'Visible', 'off');
@@ -126,11 +136,26 @@ classdef PlotGenerator
             %   cfg       - scooter_analysis.config.AnalysisConfig
             %   out_path  - Output image path
             
-            window = round(fs * cfg.window_dur_sec);
-            noverlap = round(window * cfg.overlap_ratio);
+            % Target max time slices to prevent out-of-memory on multi-hour recordings
+            max_time_slices = 3600;
+            
+            window_dur = cfg.window_dur_sec;
+            overlap_ratio = cfg.overlap_ratio;
+            
+            % If the requested window and overlap would produce too many columns,
+            % scale window/step appropriately
+            est_cols = ceil(length(sig) / (fs * window_dur * max(0.01, 1 - overlap_ratio)));
+            if est_cols > max_time_slices
+                target_step_sec = (length(sig) / fs) / max_time_slices;
+                window_dur = max(cfg.window_dur_sec, target_step_sec);
+                overlap_ratio = max(0, 1 - (target_step_sec / window_dur));
+            end
+            
+            window = round(fs * window_dur);
+            noverlap = min(window - 1, round(window * overlap_ratio));
             
             if cfg.nfft == 0
-                nfft = 2^nextpow2(window * 2);
+                nfft = min(4096, 2^nextpow2(window));
             else
                 nfft = cfg.nfft;
             end
@@ -176,18 +201,38 @@ classdef PlotGenerator
         end
         
         
-        function comparison(analyzerA, analyzerB, out_path)
-            % Plot overlaid normalised histograms comparing two datasets.
+        function comparison(varargin)
+            % Plot overlaid normalised histograms comparing two datasets or files.
             %
-            % Args:
-            %   analyzerA - First BatchAnalyzer (run)
-            %   analyzerB - Second BatchAnalyzer (run)
-            %   out_path  - Output image path
+            % Usage:
+            %   PlotGenerator.comparison(analyzerA, analyzerB, out_path)
+            %   PlotGenerator.comparison(fileResA, fileResB, out_path)
+            %   PlotGenerator.comparison(analyzerWithMultipleFiles, out_path)
             
-            a_freqs = analyzerA.getAllDomFreqs();
-            b_freqs = analyzerB.getAllDomFreqs();
-            a_bws = analyzerA.getAllBandwidths();
-            b_bws = analyzerB.getAllBandwidths();
+            if isempty(varargin)
+                return;
+            end
+            
+            out_path = varargin{end};
+            items = varargin(1:end-1);
+            
+            if length(items) == 1 && iscell(items{1})
+                items = items{1};
+            end
+            
+            if length(items) == 1 && isa(items{1}, 'scooter_analysis.pipeline.BatchAnalyzer') && length(items{1}.FileResults) >= 2
+                itemA = items{1}.FileResults(1);
+                itemB = items{1}.FileResults(2);
+            elseif length(items) >= 2
+                itemA = items{1};
+                itemB = items{2};
+            else
+                fprintf('[PlotGenerator] comparison requires 2 datasets or a dataset with >= 2 files.\n');
+                return;
+            end
+            
+            [a_freqs, a_bws, nameA] = scooter_analysis.reporting.PlotGenerator.extractHistogramData(itemA);
+            [b_freqs, b_bws, nameB] = scooter_analysis.reporting.PlotGenerator.extractHistogramData(itemB);
             
             fig = figure('Name', 'Dataset Comparison', ...
                 'Position', [100, 100, 1200, 500], 'Color', 'w', 'Visible', 'off');
@@ -202,23 +247,25 @@ classdef PlotGenerator
             title('Dominant Frequency (Normalised)');
             xlabel('Dominant Frequency (Hz)');
             ylabel('Probability');
-            legend(analyzerA.DatasetName, analyzerB.DatasetName);
+            legend(nameA, nameB, 'Interpreter', 'none');
             grid on;
             
             % Bandwidth
             subplot(1, 2, 2);
             hold on;
-            bw_max = max(max(a_bws), max(b_bws));
+            valid_a_bws = a_bws(isfinite(a_bws) & a_bws > 0);
+            valid_b_bws = b_bws(isfinite(b_bws) & b_bws > 0);
+            bw_max = max([valid_a_bws(:); valid_b_bws(:); 50]);
             bw_edges = 0:2:bw_max;
             if isempty(bw_edges); bw_edges = 0:2:100; end
-            histogram(a_bws, bw_edges, 'Normalization', 'probability', ...
+            histogram(valid_a_bws, bw_edges, 'Normalization', 'probability', ...
                 'FaceColor', [0.2 0.6 0.8], 'EdgeColor', 'none', 'FaceAlpha', 0.6);
-            histogram(b_bws, bw_edges, 'Normalization', 'probability', ...
+            histogram(valid_b_bws, bw_edges, 'Normalization', 'probability', ...
                 'FaceColor', [0.8 0.3 0.3], 'EdgeColor', 'none', 'FaceAlpha', 0.6);
             title('Bandwidth (Normalised)');
             xlabel('Bandwidth (Hz)');
             ylabel('Probability');
-            legend(analyzerA.DatasetName, analyzerB.DatasetName);
+            legend(nameA, nameB, 'Interpreter', 'none');
             grid on;
             
             scooter_analysis.reporting.PlotGenerator.safeExport(fig, out_path);
@@ -228,86 +275,195 @@ classdef PlotGenerator
         function fairnessComparison(varargin)
             % fairnessComparison - Plot and export 4-panel bandwidth & fairness stability comparison.
             %
-            % Generates:
+            % Generates (Figure 4):
             %   1. Bandwidth Distribution Comparison (KDE)
             %   2. Mean Time-in-Band (TiB) Stability
             %   3. Entropy Stability (1 - H_norm)
             %   4. Jain's Fairness Index vs Window Size
-            %
-            % Exactly as done in bandwidth_segment_lobe_floor_watershed.m.
             %
             % Usage:
             %   PlotGenerator.fairnessComparison(analyzer)
             %   PlotGenerator.fairnessComparison(analyzer, out_dir)
             %   PlotGenerator.fairnessComparison(analyzerA, analyzerB, out_dir)
             %   PlotGenerator.fairnessComparison({analyzerA, analyzerB}, out_dir)
-            %   PlotGenerator.fairnessComparison(results_cell, out_dir)
             
-            if nargin == 0
+            [results, out_dir] = scooter_analysis.reporting.PlotGenerator.parseVisualizerInputs(varargin{:});
+            if isempty(results)
                 return;
             end
             
-            firstArg = varargin{1};
-            out_dir = '';
-            results = {};
+            cfg_vis = struct('output_dir', out_dir);
+            Visualizer.render_bandwidth_distribution(results, cfg_vis);
+        end
+        
+        
+        function fairnessHistograms(varargin)
+            % fairnessHistograms - Plot normalised histograms of rolling Jain's fairness index.
+            %
+            % Usage:
+            %   PlotGenerator.fairnessHistograms(analyzer, out_path)
+            %   PlotGenerator.fairnessHistograms(analyzer, out_path, window_sec)
             
-            if nargin >= 2 && isa(varargin{2}, 'scooter_analysis.pipeline.BatchAnalyzer')
-                % Two analyzers passed as (baA, baB, [out_dir])
-                analyzers = {varargin{1}, varargin{2}};
-                if nargin >= 3 && (ischar(varargin{3}) || isstring(varargin{3}))
-                    out_dir = char(varargin{3});
+            if isempty(varargin)
+                return;
+            end
+            
+            win_sec = 5;
+            if nargin >= 3 && isnumeric(varargin{end})
+                win_sec = varargin{end};
+                vis_args = varargin(1:end-1);
+            else
+                vis_args = varargin;
+            end
+            
+            [results, out_path] = scooter_analysis.reporting.PlotGenerator.parseVisualizerInputs(vis_args{:});
+            if isempty(results)
+                return;
+            end
+            
+            fig = figure('Name', 'Fairness Index Distribution', ...
+                'Position', [100, 100, 900, 500], 'Color', 'w', 'Visible', 'off');
+            hold on; grid on;
+            
+            colors = [
+                0.2 0.6 0.8;
+                0.8 0.3 0.3;
+                0.3 0.8 0.4;
+                0.8 0.6 0.2;
+                0.6 0.3 0.8
+            ];
+            
+            slice_dur = 0.5;
+            N = max(1, round(win_sec / slice_dur));
+            edges = 0:0.02:1.00;
+            
+            legend_entries = {};
+            for k = 1:length(results)
+                r = results{k};
+                if ~isfield(r, 'slice_bw') || ~isfield(r.slice_bw, 'all_main_bws')
+                    continue;
                 end
-                results = cell(length(analyzers), 1);
-                for k = 1:length(analyzers)
-                    results{k} = analyzers{k}.getFairnessResult();
+                bws = r.slice_bw.all_main_bws;
+                bws = bws(isfinite(bws) & bws > 0);
+                
+                num_blocks = floor(length(bws) / N);
+                if num_blocks < 1
+                    continue;
                 end
-            elseif iscell(firstArg)
-                % Cell array passed: could be cell of BatchAnalyzers, FileResults, or result structs
-                if nargin >= 2 && (ischar(varargin{2}) || isstring(varargin{2}))
-                    out_dir = char(varargin{2});
-                end
-                results = cell(length(firstArg), 1);
-                for k = 1:length(firstArg)
-                    item = firstArg{k};
-                    if isa(item, 'scooter_analysis.pipeline.BatchAnalyzer')
-                        results{k} = item.getFairnessResult();
-                    elseif isa(item, 'scooter_analysis.results.FileResult')
-                        results{k} = item.getFairnessResult();
-                    elseif isstruct(item)
-                        results{k} = item;
+                
+                fair_vals = zeros(num_blocks, 1);
+                for b = 1:num_blocks
+                    blk = bws((b-1)*N + 1 : b*N);
+                    s_val = sum(blk);
+                    s_sq = sum(blk.^2);
+                    if s_sq > 0
+                        fair_vals(b) = (s_val^2) / (length(blk) * s_sq);
+                    else
+                        fair_vals(b) = NaN;
                     end
                 end
-            elseif isa(firstArg, 'scooter_analysis.pipeline.BatchAnalyzer')
-                if nargin >= 2 && (ischar(varargin{2}) || isstring(varargin{2}))
-                    out_dir = char(varargin{2});
-                else
-                    out_dir = fullfile(firstArg.OutputDir, 'fairness_comparison');
+                fair_vals = fair_vals(isfinite(fair_vals));
+                if isempty(fair_vals)
+                    continue;
                 end
-                if length(firstArg.FileResults) > 1
-                    results = firstArg.getFileFairnessResults();
-                else
-                    results = {firstArg.getFairnessResult()};
-                end
-            elseif isa(firstArg, 'scooter_analysis.results.FileResult')
-                if nargin >= 2 && (ischar(varargin{2}) || isstring(varargin{2}))
-                    out_dir = char(varargin{2});
-                end
-                results = {firstArg.getFairnessResult()};
-            elseif isstruct(firstArg)
-                if nargin >= 2 && (ischar(varargin{2}) || isstring(varargin{2}))
-                    out_dir = char(varargin{2});
-                end
-                results = num2cell(firstArg);
+                
+                c = colors(mod(k-1, size(colors, 1)) + 1, :);
+                histogram(fair_vals, edges, 'Normalization', 'probability', ...
+                    'FaceColor', c, 'EdgeColor', 'none', 'FaceAlpha', 0.6);
+                
+                legend_entries{end+1} = sprintf('%s (Mean J=%.3f)', r.meta.name, mean(fair_vals));
             end
             
-            if length(results) < 2
-                fprintf('[PlotGenerator] fairnessComparison requires at least 2 datasets or files to compare.\n');
+            title(sprintf('Jain''s Fairness Index Distribution (%ds Rolling Window)', win_sec), ...
+                'FontSize', 12, 'FontWeight', 'bold');
+            xlabel('Jain''s Fairness Index', 'FontSize', 10, 'FontWeight', 'bold');
+            ylabel('Probability', 'FontSize', 10, 'FontWeight', 'bold');
+            if ~isempty(legend_entries)
+                legend(legend_entries, 'Location', 'northwest', 'Interpreter', 'none');
+            end
+            xlim([0, 1.02]);
+            
+            scooter_analysis.reporting.PlotGenerator.safeExport(fig, out_path);
+        end
+        
+        
+        function dominantFrequency(varargin)
+            % dominantFrequency - Plot and export Figure 6: Welch PSD & Dominant Frequency.
+            % (Matches Fig 6 in bandwidth_segment_lobe_floor_watershed.m)
+            %
+            % Usage:
+            %   PlotGenerator.dominantFrequency(analyzer)
+            %   PlotGenerator.dominantFrequency(analyzer, out_dir)
+            %   PlotGenerator.dominantFrequency(analyzerA, analyzerB, out_dir)
+            %   PlotGenerator.dominantFrequency({analyzerA, analyzerB}, out_dir)
+            
+            [results, out_dir] = scooter_analysis.reporting.PlotGenerator.parseVisualizerInputs(varargin{:});
+            if isempty(results)
                 return;
             end
+            cfg_vis = struct('output_dir', out_dir);
+            Visualizer.render_welch_dominant_frequency(results, cfg_vis);
+        end
+        
+        
+        function dominantWatershed(varargin)
+            % dominantWatershed - Plot and export Figure 2: Dominant Frequency Watershed Bandwidth (250ms Center Slice).
+            % (Matches Fig 2 in bandwidth_segment_lobe_floor_watershed.m)
+            %
+            % Usage:
+            %   PlotGenerator.dominantWatershed(analyzer)
+            %   PlotGenerator.dominantWatershed(analyzer, out_dir)
+            %   PlotGenerator.dominantWatershed(analyzerA, analyzerB, out_dir)
+            %   PlotGenerator.dominantWatershed({analyzerA, analyzerB}, out_dir)
             
-            cfg_vis = struct();
-            cfg_vis.output_dir = out_dir;
-            Visualizer.render_bandwidth_distribution(results, cfg_vis);
+            [results, out_dir] = scooter_analysis.reporting.PlotGenerator.parseVisualizerInputs(varargin{:});
+            if isempty(results)
+                return;
+            end
+            cfg_vis = struct('output_dir', out_dir);
+            Visualizer.render_dominant_watershed_figures(results, cfg_vis);
+        end
+        
+        
+        function macroLobeWatershed(varargin)
+            % macroLobeWatershed - Plot and export Figure 1: Macro-Lobe Watershed & Ambient Baseline.
+            % (Matches Fig 1 in bandwidth_segment_lobe_floor_watershed.m)
+            %
+            % Usage:
+            %   PlotGenerator.macroLobeWatershed(analyzer)
+            %   PlotGenerator.macroLobeWatershed(analyzer, out_dir)
+            %   PlotGenerator.macroLobeWatershed(analyzerA, analyzerB, out_dir)
+            %   PlotGenerator.macroLobeWatershed({analyzerA, analyzerB}, out_dir)
+            
+            [results, out_dir] = scooter_analysis.reporting.PlotGenerator.parseVisualizerInputs(varargin{:});
+            if isempty(results)
+                return;
+            end
+            cfg_vis = struct('output_dir', out_dir);
+            Visualizer.render_spectral_and_cfar_figures(results, cfg_vis);
+        end
+        
+        
+        function allWatershedPlots(varargin)
+            % allWatershedPlots - Generate all diagnostic figures from bandwidth_segment_lobe_floor_watershed.m:
+            %   1. Macro-Lobe Watershed & Ambient Baseline (Fig 1)
+            %   2. Dominant Frequency Watershed Bandwidth (Fig 2)
+            %   3. Bandwidth & Fairness Stability Distribution (Fig 4)
+            %   4. Welch PSD & Dominant Frequency (Fig 6)
+            %   5. Diagnostic report summary
+            
+            [results, out_dir] = scooter_analysis.reporting.PlotGenerator.parseVisualizerInputs(varargin{:});
+            if isempty(results)
+                return;
+            end
+            cfg_vis = struct('output_dir', out_dir);
+            Visualizer.render_spectral_and_cfar_figures(results, cfg_vis);
+            Visualizer.render_dominant_watershed_figures(results, cfg_vis);
+            if length(results) >= 2
+                Visualizer.render_bandwidth_distribution(results, cfg_vis);
+            end
+            Visualizer.render_welch_dominant_frequency(results, cfg_vis);
+            Visualizer.print_diagnostic_summary(results);
         end
     end
     
@@ -325,6 +481,95 @@ classdef PlotGenerator
                 fprintf('[PlotGenerator] Export failed for %s: %s\n', out_path, ME.message);
             end
             close(fig);
+        end
+        
+        function [results, out_dir] = parseVisualizerInputs(varargin)
+            % Normalize varied input arguments into a cell array of Visualizer result structs
+            % and an output directory string.
+            results = {};
+            out_dir = '';
+            
+            if isempty(varargin)
+                return;
+            end
+            
+            % Check if the last argument is a character vector or string scalar specifying out_dir
+            last_arg = varargin{end};
+            if (ischar(last_arg) && isrow(last_arg)) || (isstring(last_arg) && isscalar(last_arg))
+                out_dir = char(last_arg);
+                items = varargin(1:end-1);
+            else
+                items = varargin;
+            end
+            
+            % If single cell array was passed (e.g. {ba_auv} or {ba_h, ba_c})
+            if length(items) == 1 && iscell(items{1})
+                items = items{1};
+            end
+            
+            if numel(items) == 1 && isa(items{1}, 'scooter_analysis.pipeline.BatchAnalyzer') && length(items{1}.FileResults) > 1
+                results = items{1}.getFileVisualizerResults();
+            else
+                for i = 1:numel(items)
+                    results = scooter_analysis.reporting.PlotGenerator.extractVisualizerResults(results, items{i});
+                end
+            end
+            
+            if isempty(out_dir)
+                out_dir = fullfile(pwd, 'outputs');
+            end
+        end
+        
+        function [freqs, bws, name] = extractHistogramData(item)
+            if isa(item, 'scooter_analysis.pipeline.BatchAnalyzer')
+                name = item.DatasetName;
+                freqs = item.getAllDomFreqs();
+                bws = item.getAllBandwidths();
+            elseif isa(item, 'scooter_analysis.results.FileResult')
+                name = item.filename;
+                freqs = item.dom_freqs;
+                bws = item.bw_vals;
+            elseif isstruct(item)
+                if isfield(item, 'meta') && isfield(item.meta, 'name')
+                    name = item.meta.name;
+                else
+                    name = 'Signal';
+                end
+                if isfield(item, 'slice_bw') && isfield(item.slice_bw, 'all_main_bws')
+                    bws = item.slice_bw.all_main_bws;
+                else
+                    bws = [];
+                end
+                if isfield(item, 'dom_lobe') && isfield(item.dom_lobe, 'peak_freq')
+                    freqs = item.dom_lobe.peak_freq;
+                else
+                    freqs = [];
+                end
+            else
+                name = 'Unknown';
+                freqs = [];
+                bws = [];
+            end
+        end
+        
+        function results = extractVisualizerResults(results, item)
+            if isempty(item)
+                return;
+            elseif iscell(item)
+                for k = 1:numel(item)
+                    results = scooter_analysis.reporting.PlotGenerator.extractVisualizerResults(results, item{k});
+                end
+            elseif isa(item, 'scooter_analysis.pipeline.BatchAnalyzer')
+                if ~isempty(item.FileResults)
+                    results{end+1} = item.getVisualizerResult();
+                end
+            elseif isa(item, 'scooter_analysis.results.FileResult')
+                results{end+1} = item.getVisualizerResult();
+            elseif isstruct(item)
+                if isfield(item, 'meta') || isfield(item, 'f_grid')
+                    results{end+1} = item;
+                end
+            end
         end
     end
 end

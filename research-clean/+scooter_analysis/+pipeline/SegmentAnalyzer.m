@@ -33,8 +33,10 @@ classdef SegmentAnalyzer
                 segment_sig, fs, cfg.f_low, cfg.f_high, cfg.twin_welch, cfg.df_eval);
             
             % Notch filter (interference removal)
-            psd_db = scooter_analysis.pipeline.SegmentAnalyzer.applyNotch( ...
-                psd_db, f_grid, cfg.notch_low, cfg.notch_high);
+            if cfg.enable_notch && cfg.notch_low > 0 && cfg.notch_high > cfg.notch_low
+                psd_db = scooter_analysis.pipeline.SegmentAnalyzer.applyNotch( ...
+                    psd_db, f_grid, cfg.notch_low, cfg.notch_high);
+            end
             
             % Macro-lobe segmentation
             [macro_lobes, dom_lobe, ocean_floor_smooth, ocean_ambient_db] = ...

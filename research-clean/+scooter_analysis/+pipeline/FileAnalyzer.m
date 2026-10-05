@@ -45,9 +45,17 @@ classdef FileAnalyzer
             
             cfg_bw = cfg.toBandwidthConfig();
             
-            % High-pass filter the entire signal once
-            [b_hp, a_hp] = butter(cfg.hp_order, cfg.hp_cutoff / (fs / 2), 'high');
-            sig_filt = filtfilt(b_hp, a_hp, sig);
+            % High-pass filter the entire signal once, respecting analysis passband minimum
+            hp_freq = cfg.hp_cutoff;
+            if hp_freq <= 0
+                hp_freq = cfg.f_low;
+            end
+            if hp_freq > 0 && hp_freq < (fs / 2)
+                [b_hp, a_hp] = butter(cfg.hp_order, hp_freq / (fs / 2), 'high');
+                sig_filt = filtfilt(b_hp, a_hp, sig);
+            else
+                sig_filt = sig;
+            end
             
             % Segment timing
             start_times = 0:cfg.step_duration:(total_duration - cfg.segment_duration);
