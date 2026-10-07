@@ -173,6 +173,31 @@ classdef BatchAnalyzer < handle
             res.slice_bw.all_fairness = all_fairness;
         end
         
+        function res = getRollingFairnessResult(obj, window_sec)
+            if nargin < 2 || isempty(window_sec)
+                window_sec = 60;
+            end
+            
+            bws = obj.getAllSliceBandwidths();
+            bws = bws(isfinite(bws) & bws > 0);
+            
+            slice_dur = obj.Config.bw_slice_dur_sec;
+            tol_hz = obj.Config.bw_tib_tolerance_hz;
+            
+            [t_centers, tib_series, ent_series, fair_series, mean_bw, std_bw] = ...
+                BandwidthTracker.compute_rolling_stability(bws, slice_dur, window_sec, tol_hz);
+            
+            res = struct();
+            res.meta.name = obj.DatasetName;
+            res.t_centers = t_centers;
+            res.tib_series = tib_series;
+            res.ent_series = ent_series;
+            res.fair_series = fair_series;
+            res.mean_bw = mean_bw;
+            res.std_bw = std_bw;
+            res.window_sec = window_sec;
+        end
+        
         function results = getFileFairnessResults(obj, max_window_sec)
             % Build cell array of result structs, one per file in this analyzer.
             if nargin < 2 || isempty(max_window_sec)

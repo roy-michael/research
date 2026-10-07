@@ -18,51 +18,49 @@ import scooter_analysis.config.AnalysisConfig
 import scooter_analysis.pipeline.BatchAnalyzer
 import scooter_analysis.reporting.PlotGenerator
 
-% base_dir = 'C:\Users\Roy\Recordings';
-base_dir = 'D:\RoyStudies\Recordings';
+base_dir = 'C:\Users\Roy\Recordings';
+% base_dir = 'D:\RoyStudies\Recordings';
 
 %% =====================================================================
 %  WORKFLOW 1: Haifa Bay - Batch Per-File Analysis
 %  (Replaces: batch_analyze_haifa_bay.m)
 % ======================================================================
-cfg = AnalysisConfig.haifaBay();
-ba = BatchAnalyzer( ...
-    fullfile(base_dir, '20250805_Haifa_bay_LME/extracted-2'), cfg, ...
-    'Name', 'HaifaBay', 'Mode', 'concatenated');
-ba.run();
+% cfg = AnalysisConfig.haifaBay();
+% ba = BatchAnalyzer( ...
+%     fullfile(base_dir, '20250805_Haifa_bay_LME/extracted-2'), cfg, ...
+%     'Name', 'HaifaBay', 'Mode', 'concatenated');
+% ba.run();
 
-out_base = fullfile(fileparts(mfilename('fullpath')), 'scooter_analysis', 'output');
-% 1. Dominant Frequency & Bandwidth Normalised Histograms (Leg1 vs Leg2)
-PlotGenerator.comparison(ba, ...
-    fullfile(out_base, 'haifa_bay_histograms.png'));
+% out_base = fullfile(fileparts(mfilename('fullpath')), 'scooter_analysis', 'output');
+% % 1. Dominant Frequency & Bandwidth Normalised Histograms (Leg1 vs Leg2)
+% PlotGenerator.comparison(ba, ...
+%     fullfile(out_base, 'haifa_bay_histograms.png'));
 
-% 2. Overall Dominant Frequency & Bandwidth Histograms
-PlotGenerator.overallHistograms(ba, ...
-    fullfile(out_base, 'haifa_bay_overall_histograms.png'));
+% % 2. Overall Dominant Frequency & Bandwidth Histograms
+% PlotGenerator.overallHistograms(ba, ...
+%     fullfile(out_base, 'haifa_bay_overall_histograms.png'));
 
-% 3. 4-Panel Bandwidth & Fairness Stability Comparison (Leg1 vs Leg2)
-%    (Figure 4: Distribution, TiB Stability, Entropy Stability, Jain's Fairness Index)
-PlotGenerator.fairnessComparison(ba, ...
-    fullfile(out_base, 'haifa_bay_fairness'));
+% % 3. 4-Panel Bandwidth & Fairness Stability Comparison (Leg1 vs Leg2)
+% %    (Figure 4: Distribution, TiB Stability, Entropy Stability, Jain's Fairness Index)
+% PlotGenerator.fairnessComparison(ba, ...
+%     fullfile(out_base, 'haifa_bay_fairness'));
 
-% 4. Jain's Fairness Index Distribution Histogram (5s Rolling Window)
-PlotGenerator.fairnessHistograms(ba, ...
-    fullfile(out_base, 'haifa_bay_fairness_histograms.png'), 5);
+% % 4. Jain's Fairness Index Distribution Histogram (5s Rolling Window)
+% PlotGenerator.fairnessHistograms(ba, ...
+%     fullfile(out_base, 'haifa_bay_fairness_histograms.png'), 5);
 
-% 5. Dominant Frequency Peak Plot (Figure 6: Welch PSD & Dominant Frequency)
-PlotGenerator.dominantFrequency({ba}, ...
-    fullfile(out_base, 'haifa_bay_dominant_frequency'));
+% % 5. Dominant Frequency Peak Plot (Figure 6: Welch PSD & Dominant Frequency)
+% PlotGenerator.dominantFrequency({ba}, ...
+%     fullfile(out_base, 'haifa_bay_dominant_frequency'));
 
-% 6. Dominant Frequency Watershed Bandwidth (Figure 2: 250ms Center Slice)
-PlotGenerator.dominantWatershed({ba}, ...
-    fullfile(out_base, 'haifa_bay_watershed_bandwidth'));
+% % 6. Dominant Frequency Watershed Bandwidth (Figure 2: 250ms Center Slice)
+% PlotGenerator.dominantWatershed({ba}, ...
+%     fullfile(out_base, 'haifa_bay_watershed_bandwidth'));
 
-% 7. Macro-Lobe Watershed Segmentation (Figure 1: Macro-Lobes & Noise Floor)
-PlotGenerator.macroLobeWatershed({ba}, ...
-    fullfile(out_base, 'haifa_bay_macro_lobes'));
+% % 7. Macro-Lobe Watershed Segmentation (Figure 1: Macro-Lobes & Noise Floor)
+% PlotGenerator.macroLobeWatershed({ba}, ...
+%     fullfile(out_base, 'haifa_bay_macro_lobes'));
 
-
-return
 
 %% =====================================================================
 %  WORKFLOW 2: Croatia - Batch Per-File Analysis
@@ -123,41 +121,41 @@ return
 %% =====================================================================
 %  WORKFLOW 6: AUV
 % ======================================================================
-cfg = AnalysisConfig.auv();
-ba_auv = BatchAnalyzer( ...
-    fullfile(base_dir, 'AUVExp_1_26'), cfg, ...
-    'Name', 'AUV', 'Mode', 'concatenated', 'Recursive', true);
-ba_auv.run();
+% cfg = AnalysisConfig.auv();
+% ba_auv = BatchAnalyzer( ...
+%     fullfile(base_dir, 'AUVExp_1_26'), cfg, ...
+%     'Name', 'AUV', 'Mode', 'concatenated', 'Recursive', true);
+% ba_auv.run();
 
-out_base = fullfile(fileparts(mfilename('fullpath')), 'scooter_analysis', 'output');
-% 1. Dominant Frequency & Bandwidth Normalised Histograms (Leg1 vs Leg2)
-PlotGenerator.comparison(ba_auv, ...
-    fullfile(out_base, 'comparison_histograms.png'));
+% out_base = fullfile(fileparts(mfilename('fullpath')), 'scooter_analysis', 'output');
+% % 1. Dominant Frequency & Bandwidth Normalised Histograms (Leg1 vs Leg2)
+% PlotGenerator.comparison(ba_auv, ...
+%     fullfile(out_base, 'comparison_histograms.png'));
 
-% 2. Overall Dominant Frequency & Bandwidth Histograms
-PlotGenerator.overallHistograms(ba_auv, ...
-    fullfile(out_base, 'AUV', 'overall_histograms.png'));
+% % 2. Overall Dominant Frequency & Bandwidth Histograms
+% PlotGenerator.overallHistograms(ba_auv, ...
+%     fullfile(out_base, 'AUV', 'overall_histograms.png'));
 
-% 3. 4-Panel Bandwidth & Fairness Stability Comparison (Leg1 vs Leg2)
-%    (Figure 4: Distribution, TiB Stability, Entropy Stability, Jain's Fairness Index)
-PlotGenerator.fairnessComparison(ba_auv, ...
-    fullfile(out_base, 'comparison_fairness'));
+% % 3. 4-Panel Bandwidth & Fairness Stability Comparison (Leg1 vs Leg2)
+% %    (Figure 4: Distribution, TiB Stability, Entropy Stability, Jain's Fairness Index)
+% PlotGenerator.fairnessComparison(ba_auv, ...
+%     fullfile(out_base, 'comparison_fairness'));
 
-% 4. Jain's Fairness Index Distribution Histogram (5s Rolling Window)
-PlotGenerator.fairnessHistograms(ba_auv, ...
-    fullfile(out_base, 'comparison_fairness_histograms.png'), 5);
+% % 4. Jain's Fairness Index Distribution Histogram (5s Rolling Window)
+% PlotGenerator.fairnessHistograms(ba_auv, ...
+%     fullfile(out_base, 'comparison_fairness_histograms.png'), 5);
 
-% 5. Dominant Frequency Peak Plot (Figure 6: Welch PSD & Dominant Frequency)
-PlotGenerator.dominantFrequency({ba_auv}, ...
-    fullfile(out_base, 'comparison_dominant_frequency'));
+% % 5. Dominant Frequency Peak Plot (Figure 6: Welch PSD & Dominant Frequency)
+% PlotGenerator.dominantFrequency({ba_auv}, ...
+%     fullfile(out_base, 'comparison_dominant_frequency'));
 
-% 6. Dominant Frequency Watershed Bandwidth (Figure 2: 250ms Center Slice)
-PlotGenerator.dominantWatershed({ba_auv}, ...
-    fullfile(out_base, 'comparison_watershed_bandwidth'));
+% % 6. Dominant Frequency Watershed Bandwidth (Figure 2: 250ms Center Slice)
+% PlotGenerator.dominantWatershed({ba_auv}, ...
+%     fullfile(out_base, 'comparison_watershed_bandwidth'));
 
-% 7. Macro-Lobe Watershed Segmentation (Figure 1: Macro-Lobes & Noise Floor)
-PlotGenerator.macroLobeWatershed({ba_auv}, ...
-    fullfile(out_base, 'comparison_macro_lobes'));
+% % 7. Macro-Lobe Watershed Segmentation (Figure 1: Macro-Lobes & Noise Floor)
+% PlotGenerator.macroLobeWatershed({ba_auv}, ...
+%     fullfile(out_base, 'comparison_macro_lobes'));
 
 
 %% =====================================================================
@@ -175,50 +173,59 @@ PlotGenerator.macroLobeWatershed({ba_auv}, ...
 %  WORKFLOW 8: Compare Two Datasets: Haifa Bay vs. Croatia
 %  (Histograms & Fairness Comparison as in bandwidth_segment_lobe_floor_watershed.m)
 % ======================================================================
-% cfg_h = AnalysisConfig.haifaBay();
-% cfg_h.segment_duration = 30;
-% cfg_h.step_duration = 30;
-% ba_h = BatchAnalyzer(fullfile(base_dir, '20250805_Haifa_bay_LME'), cfg_h, ...
-%     'Name', 'HaifaBay', 'Mode', 'per_file');
-% ba_h.run();
+cfg_h = AnalysisConfig.haifaBay();
 
-% cfg_c = AnalysisConfig.croatia();
-% cfg_c.segment_duration = 30;
-% cfg_c.step_duration = 30;
-% ba_c = BatchAnalyzer(fullfile(base_dir, 'Croatia\wav\merged'), cfg_c, ...
-%     'Name', 'Croatia', 'Mode', 'per_file');
-% ba_c.run();
+ba_h = BatchAnalyzer( ...
+    fullfile(base_dir, '20250805_Haifa_bay_LME/extracted-2'), cfg_h, ...
+    'Name', 'HaifaBay', 'Mode', 'concatenated');
+ba_h.run();
 
-% out_base = fullfile(fileparts(mfilename('fullpath')), 'scooter_analysis', 'output');
-% % 1. Dominant Frequency & Bandwidth Normalised Histograms
-% PlotGenerator.comparison(ba_h, ba_c, ...
-%     fullfile(out_base, 'comparison_histograms.png'));
 
-% % 2. 4-Panel Bandwidth & Fairness Stability Comparison (Haifa Bay vs. Croatia)
-% %    (Figure 4: Distribution, TiB Stability, Entropy Stability, Jain's Fairness Index)
-% PlotGenerator.fairnessComparison({ba_h, ba_c}, ...
-%     fullfile(out_base, 'comparison_fairness'));
+cfg_c = AnalysisConfig.croatia();
+cfg_c.segment_duration = 30;
+cfg_c.step_duration = 30;
+ba_c = BatchAnalyzer(fullfile(base_dir, 'Croatia\wav\merged'), cfg_c, ...
+    'Name', 'Croatia', 'Mode', 'concatenated');
+ba_c.run();
 
-% % 3. Dominant Frequency Peak Plot (Figure 6: Welch PSD & Dominant Frequency)
-% PlotGenerator.dominantFrequency({ba_h, ba_c}, ...
-%     fullfile(out_base, 'comparison_dominant_frequency'));
+out_base = fullfile(fileparts(mfilename('fullpath')), 'scooter_analysis', 'output');
+% 1. Dominant Frequency & Bandwidth Normalised Histograms
+PlotGenerator.comparison(ba_h, ba_c, ...
+    fullfile(out_base, 'comparison_histograms.png'));
 
-% % 4. Dominant Frequency Watershed Bandwidth (Figure 2: 250ms Center Slice)
-% PlotGenerator.dominantWatershed({ba_h, ba_c}, ...
-%     fullfile(out_base, 'comparison_watershed_bandwidth'));
+% 2. 4-Panel Bandwidth & Fairness Stability Comparison (Haifa Bay vs. Croatia)
+%    (Figure 4: Distribution, TiB Stability, Entropy Stability, Jain's Fairness Index)
+PlotGenerator.fairnessComparison({ba_h, ba_c}, ...
+    fullfile(out_base, 'comparison_fairness'));
 
-% % 5. Macro-Lobe Watershed Segmentation (Figure 1: Macro-Lobes & Noise Floor)
-% PlotGenerator.macroLobeWatershed({ba_h, ba_c}, ...
-%     fullfile(out_base, 'comparison_macro_lobes'));
+% 3. Dominant Frequency Peak Plot (Figure 6: Welch PSD & Dominant Frequency)
+PlotGenerator.dominantFrequency({ba_h, ba_c}, ...
+    fullfile(out_base, 'comparison_dominant_frequency'));
 
-% % 6. Generate All Diagnostic Plots & Summary at Once:
-% % PlotGenerator.allWatershedPlots({ba_h, ba_c}, fullfile(out_base, 'comparison_all'));
+% 4. Dominant Frequency Watershed Bandwidth (Figure 2: 250ms Center Slice)
+PlotGenerator.dominantWatershed({ba_h, ba_c}, ...
+    fullfile(out_base, 'comparison_watershed_bandwidth'));
 
-% % 7. 20-Second Window Fairness Comparison (Custom Output)
-% res_h_20 = ba_h.getFairnessResult(20);
-% res_c_20 = ba_c.getFairnessResult(20);
-% PlotGenerator.fairnessComparison({res_h_20, res_c_20}, ...
-%     fullfile(out_base, 'comparison_fairness_20s'));
+% 5. Macro-Lobe Watershed Segmentation (Figure 1: Macro-Lobes & Noise Floor)
+PlotGenerator.macroLobeWatershed({ba_h, ba_c}, ...
+    fullfile(out_base, 'comparison_macro_lobes'));
+
+% 6. Generate All Diagnostic Plots & Summary at Once:
+% PlotGenerator.allWatershedPlots({ba_h, ba_c}, fullfile(out_base, 'comparison_all'));
+
+% 7. X-Second Window Fairness Comparison (Custom Output)
+window_size_sec = 60;
+res_h_win = ba_h.getFairnessResult(window_size_sec);
+res_c_win = ba_c.getFairnessResult(window_size_sec);
+PlotGenerator.fairnessComparison({res_h_win, res_c_win}, ...
+    fullfile(out_base, sprintf('comparison_fairness_%ds', window_size_sec)));
+
+% 8. Fixed 60s Rolling Window Fairness Comparison
+rolling_win_sec = 60;
+res_h_roll = ba_h.getRollingFairnessResult(rolling_win_sec);
+res_c_roll = ba_c.getRollingFairnessResult(rolling_win_sec);
+PlotGenerator.rollingFairnessComparison({res_h_roll, res_c_roll}, ...
+    fullfile(out_base, sprintf('comparison_rolling_fairness_%ds.png', rolling_win_sec)));
 
 
 %% =====================================================================
@@ -261,6 +268,3 @@ PlotGenerator.macroLobeWatershed({ba_auv}, ...
 % PlotGenerator.fairnessComparison(results, out_plots);
 % % Or all at once:
 % % PlotGenerator.allWatershedPlots(results, out_plots);
-
-
-% fprintf('Select a workflow by uncommenting the appropriate section above.\n');

@@ -98,6 +98,30 @@ classdef FileResult
             res.slice_bw.all_fairness = all_fairness;
         end
         
+        function res = getRollingFairnessResult(obj, window_sec, custom_name)
+            if nargin < 3 || isempty(custom_name)
+                custom_name = obj.filename;
+            end
+            
+            bws = obj.getAllSliceBandwidths();
+            bws = bws(isfinite(bws) & bws > 0);
+            
+            slice_dur = 0.500;
+            tol_hz = 10;
+            [t_centers, tib_series, ent_series, fair_series, mean_bw, std_bw] = ...
+                BandwidthTracker.compute_rolling_stability(bws, slice_dur, window_sec, tol_hz);
+                
+            res = struct();
+            res.meta.name = custom_name;
+            res.t_centers = t_centers;
+            res.tib_series = tib_series;
+            res.ent_series = ent_series;
+            res.fair_series = fair_series;
+            res.mean_bw = mean_bw;
+            res.std_bw = std_bw;
+            res.window_sec = window_sec;
+        end
+        
         function res = getVisualizerResult(obj, custom_name)
             % Build a structured container compatible with all Visualizer render methods
             % (Fig 1 Macro-Lobe, Fig 2 Watershed BW, Fig 4 Fairness, Fig 6 Dominant Freq)

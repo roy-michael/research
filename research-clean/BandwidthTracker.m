@@ -331,6 +331,72 @@ classdef BandwidthTracker
         end
         end
 
+        function [t_centers, tib_series, ent_series, fair_series, mean_bw, std_bw] = compute_rolling_stability(bw_array, slice_dur_sec, window_sec, tol_hz)
+            bw_array = medfilt1(bw_array, max(3, round(5 / slice_dur_sec)));
+            
+            N = max(1, round(window_sec / slice_dur_sec));
+            T = length(bw_array);
+            
+            num_windows = T - N + 1;
+            if num_windows < 1
+                t_centers = []; tib_series = []; ent_series = []; fair_series = []; mean_bw = []; std_bw = [];
+                return;
+            end
+            
+            t_centers = ((1:num_windows) + N/2 - 0.5) * slice_dur_sec;
+            tib_series = zeros(1, num_windows);
+            ent_series = zeros(1, num_windows);
+            fair_series = zeros(1, num_windows);
+            mean_bw = zeros(1, num_windows);
+            std_bw = zeros(1, num_windows);
+            
+            num_bins = 20;
+            
+            for b = 1:num_windows
+                block_data = bw_array(b : b + N - 1);
+                
+                % Handle NaNs
+                block_data = block_data(isfinite(block_data) & block_data > 0);
+                if isempty(block_data)
+                    tib_series(b) = NaN;
+                    ent_series(b) = NaN;
+                    fair_series(b) = NaN;
+                    mean_bw(b) = NaN;
+                    std_bw(b) = NaN;
+                    continue;
+                end
+                
+                % Mean and Std of Bandwidth
+                mean_bw(b) = mean(block_data);
+                std_bw(b) = std(block_data);
+                
+                % 1. Time-in-Band (TiB)
+                med_val = median(block_data);
+                tib_series(b) = sum(abs(block_data - med_val) <= tol_hz) / length(block_data);
+                
+                % 2. Shannon Entropy (H_norm)
+                [counts, ~] = histcounts(block_data, num_bins);
+                p = counts / sum(counts);
+                p = p(p > 0);
+                if isempty(p) || length(p) == 1
+                    ent_series(b) = 0; % Perfectly stable
+                else
+                    H = -sum(p .* log2(p));
+                    H_max = log2(length(counts));
+                    ent_series(b) = H / H_max;
+                end
+                
+                % 3. Jain's Fairness
+                sum_val = sum(block_data);
+                sum_sq_val = sum(block_data.^2);
+                if sum_sq_val > 0
+                    fair_series(b) = (sum_val^2) / (length(block_data) * sum_sq_val);
+                else
+                    fair_series(b) = NaN;
+                end
+            end
+        end
+
         function crossing_frequency = interpolate_crossing(f, y, i1, i2, level, side)
         if i1 < 1 || i2 > numel(y) || y(i2) == y(i1)
             if strcmp(side, 'left')
