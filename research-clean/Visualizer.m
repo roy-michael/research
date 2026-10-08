@@ -1,6 +1,87 @@
 classdef Visualizer
-    % Handles all MATLAB plotting and command-line printing.
+    % Handles all MATLAB plotting and command-line printing with unified publication aesthetics.
     methods (Static)
+
+        % =================================================================
+        % Unified Design System: Palette, Color Assignment & Styling
+        % =================================================================
+
+        function colors = getPalette()
+            % Canonical High-Contrast Luminous Dark-Theme Palette:
+            % 1. Electric Sky Blue: [0.28, 0.75, 1.00] (HaifaBay / Primary)
+            % 2. Neon Coral:        [1.00, 0.42, 0.42] (Croatia / Secondary)
+            % 3. Vibrant Mint:      [0.22, 0.88, 0.55] (AUV / Tertiary)
+            % 4. Bright Amber:      [1.00, 0.75, 0.25] (Cruise / Quaternary)
+            % 5. Neon Amethyst:     [0.76, 0.52, 1.00] (Quinary)
+            % 6. Aqua Teal:         [0.20, 0.88, 0.88] (Senary)
+            colors = [
+                0.28 0.75 1.00;
+                1.00 0.42 0.42;
+                0.22 0.88 0.55;
+                1.00 0.75 0.25;
+                0.76 0.52 1.00;
+                0.20 0.88 0.88
+            ];
+        end
+
+        function [c, ec] = getDatasetColor(name, index)
+            % Resolves a consistent color and edge color for a dataset by name or index.
+            palette = Visualizer.getPalette();
+            if nargin < 2 || isempty(index); index = 1; end
+
+            c = [];
+            if nargin >= 1 && ~isempty(name)
+                lower_name = lower(string(name));
+                if contains(lower_name, "haifa")
+                    c = palette(1, :);
+                elseif contains(lower_name, "croatia") || contains(lower_name, "suex")
+                    c = palette(2, :);
+                elseif contains(lower_name, "auv") || contains(lower_name, "seacraft")
+                    c = palette(3, :);
+                elseif contains(lower_name, "cruise") || contains(lower_name, "motorboat")
+                    c = palette(4, :);
+                end
+            end
+            if isempty(c)
+                c = palette(mod(index - 1, size(palette, 1)) + 1, :);
+            end
+            ec = min(1.0, c * 1.15); % Luminous edge highlighting on dark background
+        end
+
+        function applyAxesStyle(ax, title_str, x_label, y_label)
+            % Applies unified dark-theme styling to an axis.
+            c_ax   = [0.10 0.13 0.20];
+            c_text = [0.88 0.91 0.96];
+            c_grid = [0.22 0.27 0.36];
+
+            set(ax, 'Color', c_ax, ...
+                'XColor', c_text, 'YColor', c_text, ...
+                'GridColor', c_grid, 'GridAlpha', 0.50, ...
+                'LineWidth', 1.0, 'FontSize', 9);
+            grid(ax, 'on');
+            box(ax, 'on');
+            if nargin >= 2 && ~isempty(title_str)
+                title(ax, title_str, 'FontSize', 11, 'FontWeight', 'bold', 'Color', [0.96 0.98 1.00]);
+            end
+            if nargin >= 3 && ~isempty(x_label)
+                xlabel(ax, x_label, 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+            end
+            if nargin >= 4 && ~isempty(y_label)
+                ylabel(ax, y_label, 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
+            end
+        end
+
+        function styleLegend(lgd)
+            % Applies unified dark-theme styling to a legend.
+            if isempty(lgd) || ~isvalid(lgd); return; end
+            set(lgd, 'Location', 'best', 'FontSize', 8.5, ...
+                'TextColor', [0.92 0.94 0.98], 'Color', [0.12 0.16 0.24], ...
+                'EdgeColor', [0.26 0.32 0.42], 'Interpreter', 'none');
+        end
+
+        % =================================================================
+        % Figure 1: Macro-Lobe Watershed & Ambient Baseline
+        % =================================================================
 
         function render_spectral_and_cfar_figures(results, cfg)
             if nargin < 2
@@ -12,24 +93,19 @@ classdef Visualizer
                 mkdir(cfg.output_dir);
             end
             num_data = length(results);
-            c_bg   = [0.082 0.133 0.263]; % Deep Navy
-            c_ax   = [0.050 0.080 0.160]; % Darker Navy
-            c_text = [0.918 0.941 0.965]; % Pale Blue-Grey
-            c_grid = [0.325 0.467 0.569]; % Muted Blue
-            c_psd  = [0.220 0.659 0.631]; % Turquoise/Teal
-            c_amb  = [0.961 0.690 0.255]; % Yellow/Orange
+            c_psd  = [0.28 0.75 1.00]; % Electric Sky Blue
+            c_amb  = [1.00 0.75 0.25]; % Bright Amber
+            c_dom  = [1.00 0.42 0.42]; % Neon Coral
 
             figure('Name', 'Figure 1: Macro-Lobe Watershed & Ambient Baseline', ...
-                'Color', c_bg, 'Position', [30, 40, 1600, 470]);
+                'Color', [0.08 0.11 0.17], 'Position', [30, 40, 1600, 470]);
 
             for k = 1:num_data
                 r = results{k};
 
-                % Top Row: PSD with Macro-Lobes and Baselines
+                % PSD with Macro-Lobes and Baselines
                 ax_top = subplot(1, num_data, k);
-                set(ax_top, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-                    'GridColor', c_grid, 'GridAlpha', 0.5, 'LineWidth', 1.0);
-                hold(ax_top, 'on'); grid(ax_top, 'on');
+                hold(ax_top, 'on');
 
                 % Fill dominant macro-lobe
                 dom = r.dom_lobe;
@@ -38,7 +114,7 @@ classdef Visualizer
                 p_dom   = r.psd_db(idx_dom);
                 y_floor = min(r.psd_db) - 3;
                 fill(ax_top, [f_dom; flipud(f_dom)], [p_dom; y_floor * ones(size(p_dom))], ...
-                    [0.90 0.25 0.35], 'FaceAlpha', 0.35, 'EdgeColor', 'none', ...
+                    c_dom, 'FaceAlpha', 0.25, 'EdgeColor', 'none', ...
                     'DisplayName', sprintf('Dominant Lobe [%0.1f-%0.1f Hz | %0.1f%%]', ...
                     dom.f_start, dom.f_end, dom.pct_energy));
 
@@ -52,8 +128,8 @@ classdef Visualizer
 
                     % We already filled the dominant lobe, but we still draw its xlines
                     if lob.f_start == dom.f_start
-                        xline(ax_top, lob.f_start, 'Color', [0.80 0.40 0.50], 'LineStyle', ':', 'LineWidth', 1.0, 'HandleVisibility', 'off');
-                        xline(ax_top, lob.f_end,   'Color', [0.80 0.40 0.50], 'LineStyle', ':', 'LineWidth', 1.0, 'HandleVisibility', 'off');
+                        xline(ax_top, lob.f_start, 'Color', [1.00 0.55 0.55], 'LineStyle', ':', 'LineWidth', 1.2, 'HandleVisibility', 'off');
+                        xline(ax_top, lob.f_end,   'Color', [1.00 0.55 0.55], 'LineStyle', ':', 'LineWidth', 1.2, 'HandleVisibility', 'off');
                         continue;
                     end
 
@@ -65,57 +141,51 @@ classdef Visualizer
                     idx_m = (r.f_grid >= lob.f_start) & (r.f_grid <= lob.f_end);
                     fill(ax_top, [r.f_grid(idx_m); flipud(r.f_grid(idx_m))], ...
                         [r.psd_db(idx_m); y_floor * ones(sum(idx_m), 1)], ...
-                        [0.30 0.65 0.95], 'FaceAlpha', 0.18, 'EdgeColor', 'none', ...
+                        [0.28 0.75 1.00], 'FaceAlpha', 0.18, 'EdgeColor', 'none', ...
                         'DisplayName', sprintf('Lobe [%0.1f-%0.1f Hz | %0.1f%%]', ...
                         lob.f_start, lob.f_end, lob.pct_energy));
 
-                    xline(ax_top, lob.f_start, 'Color', [0.80 0.40 0.50], 'LineStyle', ':', 'LineWidth', 1.0, 'HandleVisibility', 'off');
-                    xline(ax_top, lob.f_end,   'Color', [0.80 0.40 0.50], 'LineStyle', ':', 'LineWidth', 1.0, 'HandleVisibility', 'off');
+                    xline(ax_top, lob.f_start, 'Color', [0.45 0.75 0.95], 'LineStyle', ':', 'LineWidth', 1.0, 'HandleVisibility', 'off');
+                    xline(ax_top, lob.f_end,   'Color', [0.45 0.75 0.95], 'LineStyle', ':', 'LineWidth', 1.0, 'HandleVisibility', 'off');
                 end
 
                 % Traces: PSD, Ambient Floor
-                plot(ax_top, r.f_grid, r.psd_db, 'Color', c_psd, 'LineWidth', 1.2, 'DisplayName', 'Welch PSD (50 ms)');
-                plot(ax_top, r.f_grid, r.ocean_floor_smooth, 'Color', c_amb, 'LineWidth', 1.2, 'LineStyle', ':', ...
+                plot(ax_top, r.f_grid, r.psd_db, 'Color', c_psd, 'LineWidth', 1.3, 'DisplayName', 'Welch PSD (50 ms)');
+                plot(ax_top, r.f_grid, r.ocean_floor_smooth, 'Color', c_amb, 'LineWidth', 1.3, 'LineStyle', ':', ...
                     'DisplayName', sprintf('Ambient Baseline (%0.1f dB)', r.ocean_ambient_db));
 
                 xlim(ax_top, [r.meta.f_low, r.meta.f_high]);
-                ylabel(ax_top, 'PSD (dB)', 'FontSize', 9, 'FontWeight', 'bold', 'Color', c_text);
-                xlabel(ax_top, 'Frequency (Hz)', 'FontSize', 9, 'FontWeight', 'bold', 'Color', c_text);
-                title(ax_top, sprintf('%s\nMacro-Lobe Segmentation', r.meta.name), ...
-                    'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-                legend(ax_top, 'Location', 'northeast', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], ...
-                    'EdgeColor', c_grid, 'FontSize', 7.5);
+                Visualizer.applyAxesStyle(ax_top, sprintf('%s\nMacro-Lobe Segmentation', r.meta.name), ...
+                    'Frequency (Hz)', 'PSD (dB)');
+                lgd = legend(ax_top, 'Location', 'northeast');
+                Visualizer.styleLegend(lgd);
                 
                 if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
                     safe_name = regexprep(r.meta.name, '[^\w'']', '_');
-                    exportgraphics(ax_top, fullfile(cfg.output_dir, sprintf('Fig1_MacroLobe_%s.png', safe_name)), 'Resolution', 300);
+                    exportgraphics(ax_top, fullfile(cfg.output_dir, sprintf('Fig1_MacroLobe_%s.png', safe_name)), ...
+                        'Resolution', 300, 'BackgroundColor', 'current');
                 end
             end
 
             if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
-                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig1_MacroLobe_Watershed.png'), 'Resolution', 300);
+                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig1_MacroLobe_Watershed.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
             end
         end
 
-
-        % MODULE 9C: FIGURE 3 - HIGH-RESOLUTION 2D SPECTROGRAMS
-
+        % =================================================================
+        % Figure 3: High-Resolution 2D Spectrograms
+        % =================================================================
 
         function render_spectrogram_figures(results, cfg)
             num_data = length(results);
-            c_bg   = [0.082 0.133 0.263];
-            c_ax   = [0.050 0.080 0.160];
-            c_text = [0.918 0.941 0.965];
-            c_grid = [0.325 0.467 0.569];
 
             figure('Name', 'Figure 3: 2D Time-Frequency Spectrograms with Dominant Lobe Boundaries', ...
-                'Color', c_bg, 'Position', [90, 120, 1500, 600]);
+                'Color', [0.08 0.11 0.17], 'Position', [90, 120, 1500, 600]);
 
             for k = 1:num_data
                 r = results{k};
                 ax = subplot(1, num_data, k);
-                set(ax, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-                    'GridColor', c_grid, 'LineWidth', 1.0);
 
                 % Render 2D Raster in kHz
                 f_khz = r.f_spec / 1000;
@@ -134,35 +204,37 @@ classdef Visualizer
                 end
 
                 cb = colorbar(ax);
-                cb.Color = c_text;
-                ylabel(cb, 'PSD (dB/Hz)', 'Color', c_text, 'FontSize', 9);
+                cb.Color = [0.88 0.91 0.96];
+                ylabel(cb, 'PSD (dB/Hz)', 'Color', [0.88 0.91 0.96], 'FontSize', 9);
 
                 % Overlay Dominant Macro-Lobe Boundaries
                 dom = r.dom_lobe;
-                yline(ax, dom.f_start / 1000, 'Color', [1.0 0.0 1.0], 'LineStyle', '--', 'LineWidth', 1.5);
-                yline(ax, dom.f_end   / 1000, 'Color', [1.0 0.0 1.0], 'LineStyle', '--', 'LineWidth', 1.5);
+                yline(ax, dom.f_start / 1000, 'Color', [0.96 0.98 1.00], 'LineStyle', '--', 'LineWidth', 1.5, 'DisplayName', 'Lobe Boundary');
+                yline(ax, dom.f_end   / 1000, 'Color', [0.96 0.98 1.00], 'LineStyle', '--', 'LineWidth', 1.5, 'HandleVisibility', 'off');
 
-                xlabel(ax, 'Time (s)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-                ylabel(ax, 'Frequency (kHz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-                title(ax, sprintf('%s: Spectrogram [%d-%d Hz]\nDominant Lobe: [%0.1f - %0.1f Hz]', ...
+                Visualizer.applyAxesStyle(ax, ...
+                    sprintf('%s: Spectrogram [%d-%d Hz]\nDominant Lobe: [%0.1f - %0.1f Hz]', ...
                     r.meta.name, r.meta.f_low, r.meta.f_high, dom.f_start, dom.f_end), ...
-                    'FontSize', 10.5, 'FontWeight', 'bold', 'Color', c_text);
-                legend(ax, 'Lobe Boundaries', 'Location', 'northwest', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], ...
-                    'EdgeColor', c_grid, 'FontSize', 7.5);
+                    'Time (s)', 'Frequency (kHz)');
+                lgd = legend(ax, 'Location', 'northwest');
+                Visualizer.styleLegend(lgd);
 
                 if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
                     safe_name = regexprep(r.meta.name, '[^\w'']', '_');
-                    exportgraphics(ax, fullfile(cfg.output_dir, sprintf('Fig3_Spectrogram_%s.png', safe_name)), 'Resolution', 300);
+                    exportgraphics(ax, fullfile(cfg.output_dir, sprintf('Fig3_Spectrogram_%s.png', safe_name)), ...
+                        'Resolution', 300, 'BackgroundColor', 'current');
                 end
             end
 
             if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
-                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig3_2D_Spectrograms.png'), 'Resolution', 300);
+                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig3_2D_Spectrograms.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
             end
         end
 
-        % MODULE 10: DIAGNOSTIC REPORTING & CONSOLE OUTPUT
-
+        % =================================================================
+        % Figure 2: Dominant Frequency Watershed Bandwidth (250ms Center Slice)
+        % =================================================================
 
         function render_dominant_watershed_figures(results, cfg)
             if nargin < 2
@@ -174,32 +246,28 @@ classdef Visualizer
                 mkdir(cfg.output_dir);
             end
             num_data = length(results);
-            c_bg   = [0.082 0.133 0.263];
-            c_ax   = [0.050 0.080 0.160];
-            c_text = [0.918 0.941 0.965];
-            c_grid = [0.325 0.467 0.569];
 
             figure('Name', 'Figure 2: Dominant Frequency Watershed Bandwidth (250ms Center Slice)', ...
-                'Color', c_bg, 'Position', [60, 80, 1500, 580]);
+                'Color', [0.08 0.11 0.17], 'Position', [60, 80, 1500, 580]);
 
             for k = 1:num_data
                 r = results{k};
                 h = r.slice_bw;
 
                 ax = subplot(1, num_data, k);
-                set(ax, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-                    'GridColor', c_grid, 'GridAlpha', 0.5, 'LineWidth', 1.0);
-                hold(ax, 'on'); grid(ax, 'on');
+                hold(ax, 'on');
 
                 if h.found
-                    plot(ax, h.f_segment, 20*log10(h.mag_segment+eps), 'Color', [0.75 0.80 0.88], 'LineWidth', 1.4, ...
+                    % Signal FFT slice trace: Ice Blue / Light Silver for high dark-theme contrast
+                    plot(ax, h.f_segment, 20*log10(h.mag_segment+eps), 'Color', [0.82 0.88 0.96], 'LineWidth', 1.4, ...
                         'DisplayName', 'Signal FFT Slice (Hann @ Midpoint)');
 
-                    yline(ax, 20*log10(h.noise_floor+eps), 'Color', [1.00 0.78 0.25], 'LineWidth', 1.4, 'LineStyle', ':', ...
+                    % Local Noise Floor: Bright Amber
+                    yline(ax, 20*log10(h.noise_floor+eps), 'Color', [1.00 0.75 0.25], 'LineWidth', 1.4, 'LineStyle', ':', ...
                         'DisplayName', 'Local Noise Floor');
 
                     if isfield(h, 'target_mag') && ~isnan(h.target_mag) && abs(h.target_mag - h.noise_floor) > 1e-3 * h.noise_floor
-                        yline(ax, 20*log10(h.target_mag+eps), 'Color', [1.0 0.4 0.6], 'LineWidth', 1.2, 'LineStyle', '--', ...
+                        yline(ax, 20*log10(h.target_mag+eps), 'Color', [0.76 0.52 1.00], 'LineWidth', 1.2, 'LineStyle', '--', ...
                             'DisplayName', 'Adaptive Intersection Threshold (Half Prominence)');
                     end
 
@@ -210,42 +278,42 @@ classdef Visualizer
                     l_mag_db = 20*log10(h.mag_segment(l_idx) + eps);
                     r_mag_db = 20*log10(h.mag_segment(r_idx) + eps);
 
-                    % Plot Adaptive Base Intersections
+                    % Plot Adaptive Base Intersections (Neon Coral diamond)
                     plot(ax, [h.l_freq, h.r_freq], [l_mag_db, r_mag_db], 'd', ...
-                        'MarkerEdgeColor', [1.0 0.2 0.2], 'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 8, ...
+                        'MarkerEdgeColor', [1.00 0.42 0.42], 'MarkerFaceColor', [1.00 0.42 0.42], 'MarkerSize', 8, ...
                         'DisplayName', sprintf('%s Base BW: %.1f Hz', lbl, h.main_bw));
 
-                    % Plot Peak Marker
+                    % Plot Peak Marker (Vibrant Mint triangle)
                     plot(ax, h.main_f, 20*log10(h.main_mag+eps), 'v', ...
-                        'MarkerFaceColor', [0.20 0.90 0.55], 'MarkerEdgeColor', 'none', 'MarkerSize', 8, ...
+                        'MarkerFaceColor', [0.22 0.88 0.55], 'MarkerEdgeColor', 'none', 'MarkerSize', 8, ...
                         'HandleVisibility', 'off');
 
-                    title(ax, sprintf('%s: Watershed Peak Detection\nMain Peak = %0.1f Hz | Base BW = %0.1f Hz', ...
-                        r.meta.name, h.main_f, h.main_bw), ...
-                        'FontSize', 10.5, 'FontWeight', 'bold', 'Color', c_text);
+                    title_str = sprintf('%s: Watershed Peak Detection\nMain Peak = %0.1f Hz | Base BW = %0.1f Hz', ...
+                        r.meta.name, h.main_f, h.main_bw);
                 else
-                    title(ax, sprintf('%s: Peak Not Found', r.meta.name), ...
-                        'FontSize', 10.5, 'FontWeight', 'bold', 'Color', c_text);
+                    title_str = sprintf('%s: Peak Not Found', r.meta.name);
                 end
 
-                xlabel(ax, 'Frequency (Hz)', 'FontSize', 9.5, 'FontWeight', 'bold', 'Color', c_text);
-                ylabel(ax, 'Magnitude (dB)', 'FontSize', 9.5, 'FontWeight', 'bold', 'Color', c_text);
-                legend(ax, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], ...
-                    'EdgeColor', c_grid, 'FontSize', 8);
+                Visualizer.applyAxesStyle(ax, title_str, 'Frequency (Hz)', 'Magnitude (dB)');
+                lgd = legend(ax, 'Location', 'best');
+                Visualizer.styleLegend(lgd);
 
                 if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
                     safe_name = regexprep(r.meta.name, '[^\w'']', '_');
-                    exportgraphics(ax, fullfile(cfg.output_dir, sprintf('Fig2_Dominant_Watershed_BW_%s.png', safe_name)), 'Resolution', 300);
+                    exportgraphics(ax, fullfile(cfg.output_dir, sprintf('Fig2_Dominant_Watershed_BW_%s.png', safe_name)), ...
+                        'Resolution', 300, 'BackgroundColor', 'current');
                 end
             end
 
             if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
-                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig2_Dominant_Watershed_BW.png'), 'Resolution', 300);
+                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig2_Dominant_Watershed_BW.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
             end
         end
 
-        % MODULE 9D: FIGURE 4 - BANDWIDTH DISTRIBUTION HISTOGRAMS
-
+        % =================================================================
+        % Figure 4: Bandwidth Distribution Histograms & Fairness Stability
+        % =================================================================
 
         function render_bandwidth_distribution(results, cfg)
             if nargin < 2
@@ -271,33 +339,16 @@ classdef Visualizer
                 return;
             end
 
-            c_bg   = [0.082 0.133 0.263];
-            c_ax   = [0.050 0.080 0.160];
-            c_text = [0.918 0.941 0.965];
-            c_grid = [0.325 0.467 0.569];
-
             figure('Name', 'Figure 4: Watershed Main Peak Base Bandwidth & Fairness Distribution', ...
-                'Color', c_bg, 'Position', [50, 160, 1800, 500]);
+                'Color', [0.08 0.11 0.17], 'Position', [50, 160, 1800, 500]);
 
             % --- Subplot 1: Bandwidth Distribution ---
             ax1 = subplot(1, 4, 1);
-            set(ax1, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-                'GridColor', c_grid, 'LineWidth', 1.0);
-            hold(ax1, 'on'); grid(ax1, 'on');
-
-            colors = [
-                0.8 0.3 0.3; % Red
-                0.2 0.6 0.8; % Blue
-                0.3 0.8 0.4; % Green
-                0.8 0.6 0.2; % Orange
-                0.6 0.3 0.8  % Purple
-                ];
-            edge_colors = colors * 0.7;
+            hold(ax1, 'on');
 
             bw_kde = 2.0; % KDE smoothing bandwidth
 
             for k = 1:num_data
-                % Watershed Main Peak BW
                 data = [];
                 if isfield(results{k}, 'slice_bw') && isfield(results{k}.slice_bw, 'all_main_bws')
                     data = results{k}.slice_bw.all_main_bws;
@@ -305,24 +356,19 @@ classdef Visualizer
                 data = data(isfinite(data) & data > 0);
                 if ~isempty(data)
                     [f_val, xi_val] = ksdensity(data, 'Bandwidth', bw_kde);
-                    c = colors(mod(k-1, size(colors,1))+1, :);
-                    ec = edge_colors(mod(k-1, size(edge_colors,1))+1, :);
-                    fill(ax1, xi_val, f_val, c, 'FaceAlpha', 0.5, ...
-                        'EdgeColor', ec, 'LineWidth', 2, 'DisplayName', [results{k}.meta.name]);
+                    [c, ec] = Visualizer.getDatasetColor(results{k}.meta.name, k);
+                    fill(ax1, xi_val, f_val, c, 'FaceAlpha', 0.40, ...
+                        'EdgeColor', ec, 'LineWidth', 1.8, 'DisplayName', results{k}.meta.name);
                 end
             end
 
-            title(ax1, 'Bandwidth Distribution Comparison', ...
-                'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
-            xlabel(ax1, 'Bandwidth (Hz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-            ylabel(ax1, 'Probability Density', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-            legend(ax1, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid, 'Interpreter', 'none');
+            Visualizer.applyAxesStyle(ax1, 'Bandwidth Distribution Comparison', 'Bandwidth (Hz)', 'Probability Density');
+            lgd1 = legend(ax1, 'Location', 'best');
+            Visualizer.styleLegend(lgd1);
 
             % --- Subplot 2: TiB Stability ---
             ax2 = subplot(1, 4, 2);
-            set(ax2, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-                'GridColor', c_grid, 'LineWidth', 1.0);
-            hold(ax2, 'on'); grid(ax2, 'on');
+            hold(ax2, 'on');
 
             line_styles = {'-', '--', '-.', ':'};
             markers = {'o', 's', '^', 'd', 'v', '>', '<', 'p', 'h'};
@@ -335,28 +381,24 @@ classdef Visualizer
                     fair = results{k}.slice_bw.all_tib;
                 end
                 if ~isempty(win_sizes) && ~isempty(fair)
-                    % Add a tiny visual jitter to separate perfectly overlapping lines (like SUEX and SEACRAFT)
+                    % Add a tiny visual jitter to separate perfectly overlapping lines
                     jitter = (k-1) * 0.003;
-                    c = colors(mod(k-1, size(colors,1))+1, :);
+                    [c, ~] = Visualizer.getDatasetColor(results{k}.meta.name, k);
                     ls = line_styles{mod(k-1, length(line_styles))+1};
                     mk = markers{mod(k-1, length(markers))+1};
-                    lw = max(1.0, 2.5 - 0.3*k);
+                    lw = max(1.2, 2.5 - 0.3*k);
                     plot(ax2, win_sizes, fair + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', lw, 'MarkerSize', 5, ...
-                        'DisplayName', [results{k}.meta.name]);
+                        'DisplayName', results{k}.meta.name);
                 end
             end
-            ylabel(ax2, 'Mean Time-in-Band (TiB)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
             ylim(ax2, [0, 1.05]);
-            title(ax2, 'Mean Time-in-Band Stability', ...
-                'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
-            xlabel(ax2, 'Window Size N (seconds)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-            legend(ax2, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid, 'Interpreter', 'none');
+            Visualizer.applyAxesStyle(ax2, 'Mean Time-in-Band Stability', 'Window Size N (seconds)', 'Mean Time-in-Band (TiB)');
+            lgd2 = legend(ax2, 'Location', 'best');
+            Visualizer.styleLegend(lgd2);
 
             % --- Subplot 3: Entropy Stability ---
             ax3 = subplot(1, 4, 3);
-            set(ax3, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-                'GridColor', c_grid, 'LineWidth', 1.0);
-            hold(ax3, 'on'); grid(ax3, 'on');
+            hold(ax3, 'on');
 
             for k = 1:num_data
                 win_sizes = []; ent = [];
@@ -367,29 +409,23 @@ classdef Visualizer
                     ent = results{k}.slice_bw.all_entropy;
                 end
                 if ~isempty(win_sizes) && ~isempty(ent)
-                    % Add a tiny visual jitter to separate perfectly overlapping lines
                     jitter = (k-1) * 0.003;
-                    c = colors(mod(k-1, size(colors,1))+1, :);
+                    [c, ~] = Visualizer.getDatasetColor(results{k}.meta.name, k);
                     ls = line_styles{mod(k-1, length(line_styles))+1};
                     mk = markers{mod(k-1, length(markers))+1};
-                    lw = max(1.0, 2.5 - 0.3*k);
+                    lw = max(1.2, 2.5 - 0.3*k);
                     plot(ax3, win_sizes, 1 - ent + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', lw, 'MarkerSize', 5, ...
-                        'DisplayName', [results{k}.meta.name]);
+                        'DisplayName', results{k}.meta.name);
                 end
             end
-            ylabel(ax3, 'Stability (1 - H_{norm})', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
             ylim(ax3, [0, 1.05]);
-
-            title(ax3, 'Entropy Stability', ...
-                'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
-            xlabel(ax3, 'Window Size N (seconds)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-            legend(ax3, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid, 'Interpreter', 'none');
+            Visualizer.applyAxesStyle(ax3, 'Entropy Stability', 'Window Size N (seconds)', 'Stability (1 - H_{norm})');
+            lgd3 = legend(ax3, 'Location', 'best');
+            Visualizer.styleLegend(lgd3);
 
             % --- Subplot 4: Jain's Fairness Index ---
             ax4 = subplot(1, 4, 4);
-            set(ax4, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-                'GridColor', c_grid, 'LineWidth', 1.0);
-            hold(ax4, 'on'); grid(ax4, 'on');
+            hold(ax4, 'on');
 
             for k = 1:num_data
                 win_sizes = []; fair = [];
@@ -400,48 +436,301 @@ classdef Visualizer
                     fair = results{k}.slice_bw.all_fairness;
                 end
                 if ~isempty(win_sizes) && ~isempty(fair)
-                    % Add a tiny visual jitter to separate perfectly overlapping lines
                     jitter = (k-1) * 0.003;
-                    c = colors(mod(k-1, size(colors,1))+1, :);
+                    [c, ~] = Visualizer.getDatasetColor(results{k}.meta.name, k);
                     ls = line_styles{mod(k-1, length(line_styles))+1};
                     mk = markers{mod(k-1, length(markers))+1};
-                    lw = max(1.0, 2.5 - 0.3*k);
+                    lw = max(1.2, 2.5 - 0.3*k);
                     plot(ax4, win_sizes, fair + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', lw, 'MarkerSize', 5, ...
-                        'DisplayName', [results{k}.meta.name]);
+                        'DisplayName', results{k}.meta.name);
                 end
             end
-            ylabel(ax4, 'Jain''s Fairness Index', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
             ylim(ax4, [0, 1.05]);
-
-            title(ax4, 'Jain''s Fairness', ...
-                'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
-            xlabel(ax4, 'Window Size N (seconds)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-            legend(ax4, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid, 'Interpreter', 'none');
+            Visualizer.applyAxesStyle(ax4, 'Jain''s Fairness', 'Window Size N (seconds)', 'Jain''s Fairness Index');
+            lgd4 = legend(ax4, 'Location', 'best');
+            Visualizer.styleLegend(lgd4);
 
             if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
                 if ~exist(cfg.output_dir, 'dir')
                     mkdir(cfg.output_dir);
                 end
-                exportgraphics(ax1, fullfile(cfg.output_dir, 'Fig4_Subplot1_Distribution.png'), 'Resolution', 300);
-                exportgraphics(ax2, fullfile(cfg.output_dir, 'Fig4_Subplot2_TiB.png'), 'Resolution', 300);
-                exportgraphics(ax3, fullfile(cfg.output_dir, 'Fig4_Subplot3_Entropy.png'), 'Resolution', 300);
-                exportgraphics(ax4, fullfile(cfg.output_dir, 'Fig4_Subplot4_Fairness.png'), 'Resolution', 300);
-                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig4_BW_Distribution.png'), 'Resolution', 300);
+                exportgraphics(ax1, fullfile(cfg.output_dir, 'Fig4_Subplot1_Distribution.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+                exportgraphics(ax2, fullfile(cfg.output_dir, 'Fig4_Subplot2_TiB.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+                exportgraphics(ax3, fullfile(cfg.output_dir, 'Fig4_Subplot3_Entropy.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+                exportgraphics(ax4, fullfile(cfg.output_dir, 'Fig4_Subplot4_Fairness.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig4_BW_Distribution.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
             end
         end
 
-        % MODULE 9E: FIGURE 5 - OUTLIER SIGNAL SEGMENTS
+        % =================================================================
+        % Figure 4-B: Binned Bandwidth Distribution & Standard Error
+        % =================================================================
 
+        function render_binned_bandwidth_distribution(results, cfg, bin_dur_sec)
+            if nargin < 2
+                cfg = struct();
+            elseif ischar(cfg) || isstring(cfg)
+                cfg = struct('output_dir', char(cfg));
+            end
+            if nargin < 3 || isempty(bin_dur_sec)
+                bin_dur_sec = 60.0;
+            end
+            
+            num_data = length(results);
+            if num_data < 1
+                return;
+            end
+
+            binned_datasets = {};
+            for k = 1:num_data
+                r = results{k};
+                ds = struct();
+                if isfield(r, 'meta') && isfield(r.meta, 'name')
+                    ds.name = r.meta.name;
+                elseif isfield(r, 'name')
+                    ds.name = r.name;
+                else
+                    ds.name = sprintf('Dataset %d', k);
+                end
+
+                if isfield(r, 'slice_means') && isfield(r, 'slice_sems')
+                    ds.slice_means = r.slice_means;
+                    ds.slice_sems  = r.slice_sems;
+                    ds.slice_stds  = r.slice_stds;
+                    ds.slice_times = r.slice_times;
+                elseif isfield(r, 'slice_bw') && isfield(r.slice_bw, 'all_main_bws')
+                    [ds.slice_means, ds.slice_sems, ds.slice_times, ds.slice_stds] = ...
+                        BandwidthTracker.compute_binned_bandwidth(r.slice_bw.all_main_bws, 0.500, bin_dur_sec);
+                elseif isfield(r, 'all_main_bws')
+                    [ds.slice_means, ds.slice_sems, ds.slice_times, ds.slice_stds] = ...
+                        BandwidthTracker.compute_binned_bandwidth(r.all_main_bws, 0.500, bin_dur_sec);
+                else
+                    continue;
+                end
+
+                valid_mask = isfinite(ds.slice_means) & ds.slice_means > 0;
+                ds.slice_means = ds.slice_means(valid_mask);
+                ds.slice_sems  = ds.slice_sems(valid_mask);
+                ds.slice_stds  = ds.slice_stds(valid_mask);
+                ds.slice_times = ds.slice_times(valid_mask);
+
+                if ~isempty(ds.slice_means)
+                    binned_datasets{end+1} = ds;
+                end
+            end
+
+            num_ds = length(binned_datasets);
+            if num_ds < 1
+                fprintf('[Visualizer] No binned bandwidth data available for %ds analysis.\n', round(bin_dur_sec));
+                return;
+            end
+
+            fig = figure('Name', sprintf('Figure 4-B: %ds Slice Bandwidth Distribution & Std Error', round(bin_dur_sec)), ...
+                'Color', [0.08 0.11 0.17], 'Position', [50, 80, 1400, 850]);
+
+            % --- Subplot 1: 60s Mean Bandwidth Distribution Histogram ---
+            ax1 = subplot(2, 2, 1);
+            hold(ax1, 'on');
+
+            all_means_concat = vertcat(binned_datasets{:});
+            all_means_concat = vertcat(all_means_concat.slice_means);
+            min_bw = max(0, min(all_means_concat) - 5);
+            max_bw = max(all_means_concat) + 5;
+            if max_bw <= min_bw
+                max_bw = min_bw + 10;
+            end
+            num_bins = min(16, max(8, round(sqrt(length(all_means_concat)) / 1.2)));
+            bin_edges = linspace(min_bw, max_bw, num_bins + 1);
+            bin_centers = (bin_edges(1:end-1) + bin_edges(2:end)) / 2;
+
+            % Build matrices for grouped bars and error bars
+            P_matrix = zeros(num_bins, num_ds);
+            err_low_matrix = zeros(num_bins, num_ds);
+            err_up_matrix  = zeros(num_bins, num_ds);
+
+            for k = 1:num_ds
+                ds = binned_datasets{k};
+                N_k = length(ds.slice_means);
+                counts = histcounts(ds.slice_means, bin_edges);
+                probs = counts / max(1, N_k);
+
+                % Each bar's standard deviation (binomial/multinomial proportion std):
+                sigma_bar = sqrt(probs .* (1 - probs) ./ max(1, N_k));
+
+                P_matrix(:, k) = probs(:);
+                err_low_matrix(:, k) = min(probs(:), sigma_bar(:));
+                err_up_matrix(:, k)  = sigma_bar(:);
+            end
+
+            if num_ds == 1
+                b = bar(ax1, bin_centers, P_matrix, 'BarWidth', 0.95);
+            else
+                b = bar(ax1, bin_centers, P_matrix, 'grouped', 'BarWidth', 0.95);
+            end
+
+            for k = 1:num_ds
+                ds = binned_datasets{k};
+                [c, ec] = Visualizer.getDatasetColor(ds.name, k);
+
+                b(k).FaceColor = c;
+                b(k).EdgeColor = ec;
+                b(k).FaceAlpha = 0.50;
+                b(k).DisplayName = sprintf('%s (N=%d slices)', ds.name, length(ds.slice_means));
+
+                % Add error bar to show each bar's std
+                x_pos = b(k).XEndPoints;
+                y_pos = b(k).YData;
+                valid_bars = (y_pos > 0);
+                if any(valid_bars)
+                    errorbar(ax1, x_pos(valid_bars), y_pos(valid_bars), ...
+                        err_low_matrix(valid_bars, k)', err_up_matrix(valid_bars, k)', ...
+                        'LineStyle', 'none', 'Color', ec, 'LineWidth', 1.3, 'CapSize', 4, ...
+                        'HandleVisibility', 'off');
+                end
+
+                % Overlay smooth KDE curve normalized to match bar probability height
+                if length(ds.slice_means) >= 4
+                    try
+                        [f_kde, xi_kde] = ksdensity(ds.slice_means);
+                        max_p = max(P_matrix(:, k));
+                        max_f = max(f_kde);
+                        if max_f > 0 && max_p > 0
+                            f_kde_norm = f_kde * (max_p / max_f);
+                        else
+                            f_kde_norm = f_kde;
+                        end
+                        plot(ax1, xi_kde, f_kde_norm, '-', 'Color', ec, 'LineWidth', 2, ...
+                            'HandleVisibility', 'off');
+                    catch
+                    end
+                end
+
+                m_val = mean(ds.slice_means);
+                std_val = std(ds.slice_means);
+                sem_overall = mean(ds.slice_sems);
+                xline(ax1, m_val, '--', 'Color', ec, 'LineWidth', 1.8, ...
+                    'DisplayName', sprintf('%s Mean: %.1f ± %.1f Hz (std: %.1f)', ds.name, m_val, sem_overall, std_val));
+            end
+
+            max_p_all = max(P_matrix(:));
+            if max_p_all <= 0; max_p_all = 0.5; end
+            ylim(ax1, [0, min(1.0, max_p_all * 1.15 + 0.05)]);
+
+            Visualizer.applyAxesStyle(ax1, sprintf('%ds Mean Bandwidth Distribution (Normalized)', round(bin_dur_sec)), ...
+                'Mean Bandwidth (Hz)', 'Normalized Probability');
+            lgd1 = legend(ax1, 'Location', 'best');
+            Visualizer.styleLegend(lgd1);
+
+            % --- Subplot 2: Standard Error Distribution Across Slices ---
+            ax2 = subplot(2, 2, 2);
+            hold(ax2, 'on');
+
+            all_sems_concat = vertcat(binned_datasets{:});
+            all_sems_concat = vertcat(all_sems_concat.slice_sems);
+            min_sem = max(0, min(all_sems_concat) * 0.8);
+            if length(all_sems_concat) >= 10
+                p99 = prctile(all_sems_concat, 99);
+                max_sem = max(p99 * 1.25, 4.0);
+                if max_sem > max(all_sems_concat); max_sem = max(all_sems_concat) * 1.05; end
+            else
+                max_sem = max(all_sems_concat) * 1.1;
+            end
+            num_sem_bins = min(20, max(8, round(sqrt(length(all_sems_concat)))));
+            sem_edges = linspace(min_sem, max_sem, num_sem_bins + 1);
+
+            for k = 1:num_ds
+                ds = binned_datasets{k};
+                [c, ec] = Visualizer.getDatasetColor(ds.name, k);
+
+                clamped_sems = min(ds.slice_sems, max_sem);
+
+                histogram(ax2, clamped_sems, sem_edges, 'Normalization', 'probability', ...
+                    'FaceColor', c, 'EdgeColor', ec, 'FaceAlpha', 0.50, ...
+                    'DisplayName', sprintf('%s (Avg SE: %.2f Hz)', ds.name, mean(ds.slice_sems)));
+
+                mean_se = mean(ds.slice_sems);
+                xline(ax2, mean_se, '--', 'Color', ec, 'LineWidth', 1.8, ...
+                    'DisplayName', sprintf('%s Avg SE: %.2f Hz', ds.name, mean_se));
+            end
+
+            ylim(ax2, [0, 1.05]);
+
+            Visualizer.applyAxesStyle(ax2, sprintf('Std Error Distribution Across %ds Slices (Normalized)', round(bin_dur_sec)), ...
+                'Standard Error SE (Hz)', 'Normalized Probability');
+            lgd2 = legend(ax2, 'Location', 'best');
+            Visualizer.styleLegend(lgd2);
+
+            % --- Subplot 3: Mean Bandwidth with Error Bars (±SE) vs Time ---
+            ax3 = subplot(2, 2, 3);
+            hold(ax3, 'on');
+
+            for k = 1:num_ds
+                ds = binned_datasets{k};
+                [c, ~] = Visualizer.getDatasetColor(ds.name, k);
+                t_min = ds.slice_times / 60;
+
+                errorbar(ax3, t_min, ds.slice_means, ds.slice_sems, '.-', ...
+                    'Color', c, 'MarkerSize', 10, 'LineWidth', 1.2, 'CapSize', 4, ...
+                    'DisplayName', sprintf('%s (Mean: %.1f Hz)', ds.name, mean(ds.slice_means)));
+            end
+
+            Visualizer.applyAxesStyle(ax3, sprintf('%ds Slice Mean Bandwidth with Error Bars (±SE)', round(bin_dur_sec)), ...
+                'Elapsed Time (minutes)', 'Mean Bandwidth ± SE (Hz)');
+            lgd3 = legend(ax3, 'Location', 'best');
+            Visualizer.styleLegend(lgd3);
+
+            % --- Subplot 4: Standard Error for Each Slice vs Time ---
+            ax4 = subplot(2, 2, 4);
+            hold(ax4, 'on');
+
+            for k = 1:num_ds
+                ds = binned_datasets{k};
+                [c, ec] = Visualizer.getDatasetColor(ds.name, k);
+                t_min = ds.slice_times / 60;
+
+                plot(ax4, t_min, ds.slice_sems, '.-', 'Color', c, 'LineWidth', 1.2, ...
+                    'MarkerSize', 10, 'DisplayName', sprintf('%s (Avg SE: %.2f Hz)', ds.name, mean(ds.slice_sems)));
+
+                yline(ax4, mean(ds.slice_sems), ':', 'Color', ec, 'LineWidth', 1.5, ...
+                    'HandleVisibility', 'off');
+            end
+
+            Visualizer.applyAxesStyle(ax4, sprintf('Standard Error for Each %ds Slice', round(bin_dur_sec)), ...
+                'Elapsed Time (minutes)', 'Std Error SE (Hz)');
+            lgd4 = legend(ax4, 'Location', 'best');
+            Visualizer.styleLegend(lgd4);
+
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                if ~exist(cfg.output_dir, 'dir')
+                    mkdir(cfg.output_dir);
+                end
+                exportgraphics(ax1, fullfile(cfg.output_dir, 'Fig4_Binned_BW_Subplot1_Distribution.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+                exportgraphics(ax2, fullfile(cfg.output_dir, 'Fig4_Binned_BW_Subplot2_StdError_Dist.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+                exportgraphics(ax3, fullfile(cfg.output_dir, 'Fig4_Binned_BW_Subplot3_Mean_Errorbar.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+                exportgraphics(ax4, fullfile(cfg.output_dir, 'Fig4_Binned_BW_Subplot4_StdError_Time.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+                exportgraphics(fig, fullfile(cfg.output_dir, 'Fig4_Binned_BW_Summary.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+            end
+        end
+
+        % =================================================================
+        % Figure 5: Outlier Signal Segments
+        % =================================================================
 
         function render_outlier_figures(results, cfg)
             num_data = length(results);
-            c_bg   = [0.082 0.133 0.263];
-            c_ax   = [0.050 0.080 0.160];
-            c_text = [0.918 0.941 0.965];
-            c_grid = [0.325 0.467 0.569];
 
             figure('Name', 'Figure 5: Outlier Signal Segments (Furthest from Mean BW)', ...
-                'Color', c_bg, 'Position', [150, 180, 1600, 470]);
+                'Color', [0.08 0.11 0.17], 'Position', [150, 180, 1600, 470]);
 
             for k = 1:num_data
                 r = results{k};
@@ -465,46 +754,103 @@ classdef Visualizer
                 outlier_slice = slices{valid_slices(max_dev_idx)};
 
                 ax = subplot(1, num_data, k);
-                set(ax, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-                    'GridColor', c_grid, 'LineWidth', 1.0);
-                hold(ax, 'on'); grid(ax, 'on');
+                hold(ax, 'on');
 
                 f_seg = outlier_slice.f_segment;
                 mag_db = 20 * log10(outlier_slice.mag_segment + eps);
                 nf_db = 20 * log10(outlier_slice.noise_floor + eps);
                 target_mag_db = 20 * log10(outlier_slice.target_mag + eps);
 
-                % Plot the raw magnitude
-                plot(ax, f_seg, mag_db, 'Color', [0.20 0.82 1.00], 'LineWidth', 1.2, ...
+                % Plot the raw magnitude in Electric Sky Blue
+                plot(ax, f_seg, mag_db, 'Color', [0.28 0.75 1.00], 'LineWidth', 1.3, ...
                     'DisplayName', sprintf('Slice %d (BW: %.1f Hz)', outlier_slice.slice_idx, outlier_slice.main_bw));
 
-                % Plot Noise Floor
-                yline(ax, nf_db, 'Color', [0.8 0.4 0.4], 'LineStyle', '--', 'LineWidth', 1.2, ...
+                % Plot Noise Floor in Bright Amber
+                yline(ax, nf_db, 'Color', [1.00 0.75 0.25], 'LineStyle', '--', 'LineWidth', 1.2, ...
                     'DisplayName', 'Ambient Noise Floor');
 
-                % Markers for Watershed BW
-                plot(ax, outlier_slice.l_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
-                    'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
-                plot(ax, outlier_slice.r_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.0 0.2 0.2], ...
-                    'MarkerFaceColor', [1.0 0.2 0.2], 'MarkerSize', 6, 'HandleVisibility', 'off');
+                % Markers for Watershed BW in Neon Coral
+                plot(ax, outlier_slice.l_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.00 0.42 0.42], ...
+                    'MarkerFaceColor', [1.00 0.42 0.42], 'MarkerSize', 6, 'HandleVisibility', 'off');
+                plot(ax, outlier_slice.r_freq, target_mag_db, 'd', 'MarkerEdgeColor', [1.00 0.42 0.42], ...
+                    'MarkerFaceColor', [1.00 0.42 0.42], 'MarkerSize', 6, 'HandleVisibility', 'off');
 
-                title(ax, sprintf('%s: Outlier Slice (Dev: %.1f Hz from Mean %.1f Hz)', r.meta.name, abs(outlier_slice.main_bw - mean_bw), mean_bw), ...
-                    'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-                xlabel(ax, 'Frequency (Hz)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-                ylabel(ax, 'Magnitude (dB)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-                legend(ax, 'Location', 'best', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], 'EdgeColor', c_grid);
+                Visualizer.applyAxesStyle(ax, ...
+                    sprintf('%s: Outlier Slice (Dev: %.1f Hz from Mean %.1f Hz)', r.meta.name, abs(outlier_slice.main_bw - mean_bw), mean_bw), ...
+                    'Frequency (Hz)', 'Magnitude (dB)');
+                lgd = legend(ax, 'Location', 'best');
+                Visualizer.styleLegend(lgd);
 
                 if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
                     safe_name = regexprep(r.meta.name, '[^\w'']', '_');
-                    exportgraphics(ax, fullfile(cfg.output_dir, sprintf('Fig5_Outlier_Segment_%s.png', safe_name)), 'Resolution', 300);
+                    exportgraphics(ax, fullfile(cfg.output_dir, sprintf('Fig5_Outlier_Segment_%s.png', safe_name)), ...
+                        'Resolution', 300, 'BackgroundColor', 'current');
                 end
             end
 
             if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
-                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig5_Outlier_Segments.png'), 'Resolution', 300);
+                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig5_Outlier_Segments.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
             end
         end
 
+        % =================================================================
+        % Figure 6: Welch PSD & Dominant Frequency
+        % =================================================================
+
+        function render_welch_dominant_frequency(results, cfg)
+            if nargin < 2
+                cfg = struct();
+            elseif ischar(cfg) || isstring(cfg)
+                cfg = struct('output_dir', char(cfg));
+            end
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir) && ~exist(cfg.output_dir, 'dir')
+                mkdir(cfg.output_dir);
+            end
+            num_data = length(results);
+            c_psd  = [0.28 0.75 1.00]; % Electric Sky Blue
+            c_dom  = [1.00 0.42 0.42]; % Neon Coral
+
+            figure('Name', 'Figure 6: Welch PSD and Dominant Frequency', ...
+                'Color', [0.08 0.11 0.17], 'Position', [200, 220, 1600, 470]);
+
+            for k = 1:num_data
+                r = results{k};
+
+                ax = subplot(1, num_data, k);
+                hold(ax, 'on');
+
+                plot(ax, r.f_grid, r.psd_db, 'Color', c_psd, 'LineWidth', 1.3, 'DisplayName', 'Welch PSD');
+
+                dom = r.dom_lobe;
+                plot(ax, dom.peak_freq, dom.peak_psd, 'v', ...
+                    'MarkerFaceColor', c_dom, 'MarkerEdgeColor', 'none', 'MarkerSize', 10, ...
+                    'DisplayName', sprintf('Dominant Freq (%.1f Hz)', dom.peak_freq));
+                
+                xline(ax, dom.peak_freq, 'Color', c_dom, 'LineStyle', ':', 'LineWidth', 1.2, 'HandleVisibility', 'off');
+
+                xlim(ax, [r.meta.f_low, r.meta.f_high]);
+                Visualizer.applyAxesStyle(ax, sprintf('%s\nWelch PSD & Dominant Frequency', r.meta.name), ...
+                    'Frequency (Hz)', 'PSD (dB/Hz)');
+                lgd = legend(ax, 'Location', 'northeast');
+                Visualizer.styleLegend(lgd);
+
+                if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                    safe_name = regexprep(r.meta.name, '[^\w'']', '_');
+                    exportgraphics(ax, fullfile(cfg.output_dir, sprintf('Fig6_Welch_Dominant_Freq_%s.png', safe_name)), ...
+                        'Resolution', 300, 'BackgroundColor', 'current');
+                end
+            end
+
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig6_Welch_Dominant_Freq.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+            end
+        end
+
+        % =================================================================
+        % Diagnostic Console Summary
+        % =================================================================
 
         function print_diagnostic_summary(results)
             fprintf('\n============================================================\n');
@@ -544,65 +890,5 @@ classdef Visualizer
             fprintf('\n============================================================\n\n');
         end
 
-        % MODULE 9B: FIGURE 2 - DOMINANT FREQUENCY BANDWIDTH (WATERSHED)
-
-        function render_welch_dominant_frequency(results, cfg)
-            if nargin < 2
-                cfg = struct();
-            elseif ischar(cfg) || isstring(cfg)
-                cfg = struct('output_dir', char(cfg));
-            end
-            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir) && ~exist(cfg.output_dir, 'dir')
-                mkdir(cfg.output_dir);
-            end
-            num_data = length(results);
-            c_bg   = [0.082 0.133 0.263];
-            c_ax   = [0.050 0.080 0.160];
-            c_text = [0.918 0.941 0.965];
-            c_grid = [0.325 0.467 0.569];
-            c_psd  = [0.220 0.659 0.631];
-            c_dom  = [1.0 0.2 0.2];
-
-            figure('Name', 'Figure 6: Welch PSD and Dominant Frequency', ...
-                'Color', c_bg, 'Position', [200, 220, 1600, 470]);
-
-            for k = 1:num_data
-                r = results{k};
-
-                ax = subplot(1, num_data, k);
-                set(ax, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-                    'GridColor', c_grid, 'GridAlpha', 0.5, 'LineWidth', 1.0);
-                hold(ax, 'on'); grid(ax, 'on');
-
-                plot(ax, r.f_grid, r.psd_db, 'Color', c_psd, 'LineWidth', 1.2, 'DisplayName', 'Welch PSD');
-
-                dom = r.dom_lobe;
-                plot(ax, dom.peak_freq, dom.peak_psd, 'v', ...
-                    'MarkerFaceColor', c_dom, 'MarkerEdgeColor', 'none', 'MarkerSize', 10, ...
-                    'DisplayName', sprintf('Dominant Freq (%.1f Hz)', dom.peak_freq));
-                
-                xline(ax, dom.peak_freq, 'Color', c_dom, 'LineStyle', ':', 'LineWidth', 1.2, 'HandleVisibility', 'off');
-
-                xlim(ax, [r.meta.f_low, r.meta.f_high]);
-                ylabel(ax, 'PSD (dB/Hz)', 'FontSize', 9, 'FontWeight', 'bold', 'Color', c_text);
-                xlabel(ax, 'Frequency (Hz)', 'FontSize', 9, 'FontWeight', 'bold', 'Color', c_text);
-                title(ax, sprintf('%s\nWelch PSD & Dominant Frequency', r.meta.name), ...
-                    'FontSize', 10, 'FontWeight', 'bold', 'Color', c_text);
-                legend(ax, 'Location', 'northeast', 'TextColor', c_text, 'Color', [0.08 0.10 0.15], ...
-                    'EdgeColor', c_grid, 'FontSize', 8);
-
-                if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
-                    safe_name = regexprep(r.meta.name, '[^\w'']', '_');
-                    exportgraphics(ax, fullfile(cfg.output_dir, sprintf('Fig6_Welch_Dominant_Freq_%s.png', safe_name)), 'Resolution', 300);
-                end
-            end
-
-            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
-                exportgraphics(gcf, fullfile(cfg.output_dir, 'Fig6_Welch_Dominant_Freq.png'), 'Resolution', 300);
-            end
-        end
-
     end
 end
-
-

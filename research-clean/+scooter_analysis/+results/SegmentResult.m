@@ -10,6 +10,9 @@ classdef SegmentResult
         dom_freq    (1,1) double = NaN     % Dominant lobe peak frequency (Hz)
         peak_psd    (1,1) double = NaN     % Peak PSD of dominant lobe (dB)
         med_bw      (1,1) double = NaN     % Median bandwidth across slices (Hz)
+        mean_bw     (1,1) double = NaN     % Mean bandwidth across slices (Hz)
+        sem_bw      (1,1) double = NaN     % Standard error of bandwidth across slices (Hz)
+        std_bw      (1,1) double = NaN     % Standard deviation of bandwidth across slices (Hz)
         psd_db      (:,1) double = []      % Interpolated PSD vector (dB)
         f_grid      (:,1) double = []      % Corresponding frequency grid (Hz)
         

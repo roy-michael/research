@@ -34,11 +34,14 @@ classdef VideoExporter
             vid_obj.FrameRate = cfg.video_frame_rate;
             open(vid_obj);
             
-            % Dark theme colors
-            c_bg   = [0.082 0.133 0.263];
-            c_ax   = [0.050 0.080 0.160];
-            c_text = [0.918 0.941 0.965];
-            c_grid = [0.325 0.467 0.569];
+            % Unified publication dark-theme colors
+            c_bg   = [0.08 0.11 0.17];
+            c_ax   = [0.10 0.13 0.20];
+            c_text = [0.88 0.91 0.96];
+            c_grid = [0.22 0.27 0.36];
+            c_psd  = [0.28 0.75 1.00]; % Electric Sky Blue
+            c_dom  = [1.00 0.42 0.42]; % Neon Coral
+            c_amb  = [1.00 0.75 0.25]; % Bright Amber
             
             h_fig = figure('Name', 'Welch Diagrams Series', ...
                 'Position', [100, 100, 1000, 600], 'Color', c_bg, 'Visible', 'off');
@@ -52,8 +55,8 @@ classdef VideoExporter
                 clf(h_fig);
                 ax = axes(h_fig);
                 set(ax, 'Color', c_ax, 'XColor', c_text, 'YColor', c_text, ...
-                    'GridColor', c_grid, 'GridAlpha', 0.5, 'LineWidth', 1.0);
-                hold(ax, 'on'); grid(ax, 'on');
+                    'GridColor', c_grid, 'GridAlpha', 0.50, 'LineWidth', 1.0);
+                hold(ax, 'on'); grid(ax, 'on'); box(ax, 'on');
                 
                 psd_db = sr.psd_db;
                 f_grid = sr.f_grid;
@@ -71,7 +74,7 @@ classdef VideoExporter
                         if any(idx_m)
                             fill(ax, [f_grid(idx_m); flipud(f_grid(idx_m))], ...
                                 [psd_db(idx_m); y_floor * ones(sum(idx_m), 1)], ...
-                                [0.30 0.65 0.95], 'FaceAlpha', 0.18, 'EdgeColor', 'none', ...
+                                [0.28 0.75 1.00], 'FaceAlpha', 0.18, 'EdgeColor', 'none', ...
                                 'HandleVisibility', 'off');
                         end
                     end
@@ -84,7 +87,7 @@ classdef VideoExporter
                     p_dom = psd_db(idx_dom);
                     if ~isempty(f_dom)
                         fill(ax, [f_dom; flipud(f_dom)], [p_dom; y_floor * ones(size(p_dom))], ...
-                            [0.90 0.25 0.35], 'FaceAlpha', 0.35, 'EdgeColor', 'none', ...
+                            c_dom, 'FaceAlpha', 0.25, 'EdgeColor', 'none', ...
                             'DisplayName', sprintf('Dominant Lobe [%0.1f-%0.1f Hz | %0.1f%%]', ...
                             sr.dom_lobe.f_start, sr.dom_lobe.f_end, sr.dom_lobe.pct_energy));
                     end
@@ -92,22 +95,23 @@ classdef VideoExporter
                 
                 % Plot Ambient Baseline
                 if ~isempty(sr.ocean_floor)
-                    plot(ax, f_grid, sr.ocean_floor, 'Color', [0.961 0.690 0.255], ...
+                    plot(ax, f_grid, sr.ocean_floor, 'Color', c_amb, ...
                         'LineStyle', ':', 'LineWidth', 1.5, ...
                         'DisplayName', sprintf('Ambient Baseline (%.1f dB)', sr.ocean_ambient_db));
                 end
                 
                 % Plot PSD
-                plot(ax, f_grid, psd_db, 'Color', [0.220 0.659 0.631], ...
-                    'LineWidth', 1.5, 'DisplayName', 'Welch PSD');
+                plot(ax, f_grid, psd_db, 'Color', c_psd, ...
+                    'LineWidth', 1.4, 'DisplayName', 'Welch PSD');
                 
                 xlim(ax, [cfg.f_low, cfg.f_high]);
                 ylim(ax, [y_floor, max(psd_db) + 5]);
-                xlabel(ax, 'Frequency (Hz)', 'FontSize', 12);
-                ylabel(ax, 'PSD (dB)', 'FontSize', 12);
+                xlabel(ax, 'Frequency (Hz)', 'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
+                ylabel(ax, 'PSD (dB)', 'FontSize', 11, 'FontWeight', 'bold', 'Color', c_text);
                 title(ax, sprintf('Segment %d: %.1fs - %.1fs', i, sr.start_time, sr.end_time), ...
-                    'FontSize', 14, 'Color', c_text);
-                legend(ax, 'Location', 'northeast', 'TextColor', c_text, 'Color', c_bg);
+                    'FontSize', 12, 'FontWeight', 'bold', 'Color', [0.96 0.98 1.00]);
+                lgd = legend(ax, 'Location', 'northeast', 'TextColor', [0.92 0.94 0.98], ...
+                    'Color', [0.12 0.16 0.24], 'EdgeColor', [0.26 0.32 0.42], 'Interpreter', 'none');
                 
                 frame = getframe(h_fig);
                 % Ensure frame dimensions are even for H.264 codec

@@ -45,12 +45,23 @@ classdef SegmentAnalyzer
             % Bandwidth tracking
             slice_bw = BandwidthTracker.compute_watershed_slice_bandwidth( ...
                 segment_sig, fs, dom_lobe, cfg_bw);
-            med_bw = median(slice_bw.all_main_bws, 'omitnan');
+            bws_valid = slice_bw.all_main_bws(isfinite(slice_bw.all_main_bws) & slice_bw.all_main_bws > 0);
+            med_bw = median(bws_valid, 'omitnan');
+            mean_bw = mean(bws_valid, 'omitnan');
+            std_bw  = std(bws_valid, 'omitnan');
+            if ~isempty(bws_valid)
+                sem_bw = std_bw / sqrt(length(bws_valid));
+            else
+                sem_bw = NaN;
+            end
             
             % Populate result
             sr.dom_freq = dom_lobe.peak_freq;
             sr.peak_psd = dom_lobe.peak_psd;
             sr.med_bw = med_bw;
+            sr.mean_bw = mean_bw;
+            sr.sem_bw = sem_bw;
+            sr.std_bw = std_bw;
             sr.psd_db = psd_db;
             sr.f_grid = f_grid;
             sr.slice_bw = slice_bw;

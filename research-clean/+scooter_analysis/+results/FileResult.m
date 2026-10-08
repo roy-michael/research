@@ -16,7 +16,9 @@ classdef FileResult
         
         % Convenience vectors (derived from segments)
         dom_freqs   (:,1) double = []          % [num_segments x 1]
-        bw_vals     (:,1) double = []          % [num_segments x 1]
+        bw_vals     (:,1) double = []          % [num_segments x 1] (median BW)
+        mean_bws    (:,1) double = []          % [num_segments x 1] (mean BW)
+        sem_bws     (:,1) double = []          % [num_segments x 1] (std error of BW)
         time_centers_abs (:,1) double = []     % [num_segments x 1] datenum values
         
         % PSD matrix for LTSA
@@ -32,6 +34,8 @@ classdef FileResult
             end
             obj.dom_freqs = [obj.segments.dom_freq]';
             obj.bw_vals   = [obj.segments.med_bw]';
+            obj.mean_bws  = [obj.segments.mean_bw]';
+            obj.sem_bws   = [obj.segments.sem_bw]';
             
             time_centers_sec = ([obj.segments.start_time]' + [obj.segments.end_time]') / 2;
             obj.time_centers_abs = datenum(obj.base_time + seconds(time_centers_sec));
@@ -120,6 +124,25 @@ classdef FileResult
             res.mean_bw = mean_bw;
             res.std_bw = std_bw;
             res.window_sec = window_sec;
+        end
+        
+        function res = getBinnedBandwidthResult(obj, bin_dur_sec, custom_name)
+            if nargin < 2 || isempty(bin_dur_sec); bin_dur_sec = 60.0; end
+            if nargin < 3 || isempty(custom_name); custom_name = obj.filename; end
+            
+            bws = obj.getAllSliceBandwidths();
+            slice_dur = 0.500;
+            [slice_means, slice_sems, slice_times, slice_stds] = ...
+                BandwidthTracker.compute_binned_bandwidth(bws, slice_dur, bin_dur_sec);
+            
+            res = struct();
+            res.meta = struct('name', custom_name);
+            res.bin_dur_sec = bin_dur_sec;
+            res.slice_means = slice_means;
+            res.slice_sems  = slice_sems;
+            res.slice_stds  = slice_stds;
+            res.slice_times = slice_times;
+            res.all_main_bws = bws;
         end
         
         function res = getVisualizerResult(obj, custom_name)

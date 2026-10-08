@@ -198,6 +198,35 @@ classdef BatchAnalyzer < handle
             res.window_sec = window_sec;
         end
         
+        function bws = getAllMeanBandwidths(obj)
+            % Concatenate segment mean bandwidths across all files.
+            bws = vertcat(obj.FileResults.mean_bws);
+        end
+        
+        function sems = getAllSemBandwidths(obj)
+            % Concatenate segment standard errors across all files.
+            sems = vertcat(obj.FileResults.sem_bws);
+        end
+        
+        function res = getBinnedBandwidthResult(obj, bin_dur_sec)
+            % Build 60s (or custom bin) aggregated bandwidth result with mean and standard error.
+            if nargin < 2 || isempty(bin_dur_sec); bin_dur_sec = 60.0; end
+            
+            bws = obj.getAllSliceBandwidths();
+            slice_dur = obj.Config.bw_slice_dur_sec;
+            [slice_means, slice_sems, slice_times, slice_stds] = ...
+                BandwidthTracker.compute_binned_bandwidth(bws, slice_dur, bin_dur_sec);
+            
+            res = struct();
+            res.meta = struct('name', obj.DatasetName);
+            res.bin_dur_sec = bin_dur_sec;
+            res.slice_means = slice_means;
+            res.slice_sems  = slice_sems;
+            res.slice_stds  = slice_stds;
+            res.slice_times = slice_times;
+            res.all_main_bws = bws;
+        end
+        
         function results = getFileFairnessResults(obj, max_window_sec)
             % Build cell array of result structs, one per file in this analyzer.
             if nargin < 2 || isempty(max_window_sec)
