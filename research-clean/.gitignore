@@ -3,3 +3,5 @@ scooter_analysis/output/*
 !scooter_analysis/output/comparison_fairness/
 !scooter_analysis/output/comparison_fairness/**
 !scooter_analysis/output/comparison_histograms.png
+!scooter_analysis/output/comparison_*.png
+!scooter_analysis/output/dominant_frequencies_report.txt

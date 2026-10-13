@@ -152,11 +152,12 @@ classdef BatchAnalyzer < handle
             
             slice_dur = obj.Config.bw_slice_dur_sec;
             tol_hz = obj.Config.bw_tib_tolerance_hz;
+            max_bins = obj.Config.bw_entropy_max_bins;
             total_time = min(length(bws) * slice_dur, max_window_sec);
             
             if total_time >= 2 && ~isempty(bws)
                 [win_sizes, all_tib, all_entropy, all_fairness] = ...
-                    BandwidthTracker.compute_stability_vs_window(bws, slice_dur, total_time, tol_hz);
+                    BandwidthTracker.compute_stability_vs_window(bws, slice_dur, total_time, tol_hz, max_bins);
             else
                 win_sizes = [];
                 all_tib = [];
@@ -166,6 +167,7 @@ classdef BatchAnalyzer < handle
             
             res = struct();
             res.meta.name = obj.DatasetName;
+            res.tol_hz = tol_hz;
             res.slice_bw.all_main_bws = bws;
             res.slice_bw.fairness_window_sec = win_sizes;
             res.slice_bw.all_tib = all_tib;
@@ -183,9 +185,10 @@ classdef BatchAnalyzer < handle
             
             slice_dur = obj.Config.bw_slice_dur_sec;
             tol_hz = obj.Config.bw_tib_tolerance_hz;
+            max_bins = obj.Config.bw_entropy_max_bins;
             
             [t_centers, tib_series, ent_series, fair_series, mean_bw, std_bw] = ...
-                BandwidthTracker.compute_rolling_stability(bws, slice_dur, window_sec, tol_hz);
+                BandwidthTracker.compute_rolling_stability(bws, slice_dur, window_sec, tol_hz, [], max_bins);
             
             res = struct();
             res.meta.name = obj.DatasetName;
@@ -196,6 +199,7 @@ classdef BatchAnalyzer < handle
             res.mean_bw = mean_bw;
             res.std_bw = std_bw;
             res.window_sec = window_sec;
+            res.tol_hz = tol_hz;
         end
         
         function bws = getAllMeanBandwidths(obj)

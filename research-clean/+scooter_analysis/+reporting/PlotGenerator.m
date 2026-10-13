@@ -39,7 +39,7 @@ classdef PlotGenerator
                 1.00 0.75 0.25;
                 0.76 0.52 1.00;
                 0.20 0.88 0.88
-            ];
+                ];
         end
 
         function [c, ec] = getDatasetColor(name, index)
@@ -71,7 +71,7 @@ classdef PlotGenerator
             c_ax   = [0.10 0.13 0.20];
             c_text = [0.88 0.91 0.96];
             c_grid = [0.22 0.27 0.36];
-            
+
             set(ax, 'Color', c_ax, ...
                 'XColor', c_text, 'YColor', c_text, ...
                 'GridColor', c_grid, 'GridAlpha', 0.50, ...
@@ -437,7 +437,8 @@ classdef PlotGenerator
                 end
             end
 
-            title(ax1, 'd(TiB)/dN vs Window Size', 'FontSize', 11, 'FontWeight', 'bold', 'Color', [0.96 0.98 1.00]);
+            tol_hz = scooter_analysis.reporting.PlotGenerator.extractTibTolerance(results);
+            title(ax1, sprintf('d(TiB)/dN vs Window Size (\\pm%g Hz)', tol_hz), 'FontSize', 11, 'FontWeight', 'bold', 'Color', [0.96 0.98 1.00]);
             ylabel(ax1, 'd(TiB)/dN (s^{-1})', 'FontSize', 10, 'FontWeight', 'bold', 'Color', [0.88 0.91 0.96]);
             xlabel(ax1, 'Window Size N (s)', 'FontSize', 10, 'FontWeight', 'bold', 'Color', [0.88 0.91 0.96]);
 
@@ -543,19 +544,127 @@ classdef PlotGenerator
 
         function [d_y, dt_vec] = numericalDerivative(t_vec, y_vec)
             % numericalDerivative - Computes central finite difference derivative dy/dt.
-            d_y = nan(size(y_vec));
-            dt_vec = zeros(size(t_vec));
-            valid = isfinite(t_vec) & isfinite(y_vec);
+            if isempty(t_vec) || isempty(y_vec)
+                d_y = [];
+                dt_vec = [];
+                return;
+            end
+            is_row = isrow(y_vec);
+            t_col  = t_vec(:);
+            y_col  = y_vec(:);
+            d_y    = nan(size(y_col));
+            dt_vec = zeros(size(t_col));
+            valid  = isfinite(t_col) & isfinite(y_col);
             if sum(valid) >= 2
-                t_sub = t_vec(valid);
-                y_sub = y_vec(valid);
+                t_sub  = t_col(valid);
+                y_sub  = y_col(valid);
                 dt_sub = gradient(t_sub);
                 dt_sub(dt_sub == 0) = eps;
-                d_sub = gradient(y_sub) ./ dt_sub;
-                d_y(valid) = d_sub;
+                d_sub  = gradient(y_sub) ./ dt_sub;
+                d_y(valid)    = d_sub;
                 dt_vec(valid) = dt_sub;
             elseif sum(valid) == 1
                 d_y(valid) = 0;
+            end
+            if is_row
+                d_y    = d_y';
+                dt_vec = dt_vec';
+            end
+        end
+
+        function y_smooth = applySgolayFilter(data, order, framelen)
+            % applySgolayFilter - Robust Savitzky-Golay filtering with NaN safety and adaptive frame length.
+            if nargin < 2 || isempty(order); order = 2; end
+            if nargin < 3 || isempty(framelen); framelen = 5; end
+
+            y_smooth = data;
+            if isempty(data)
+                return;
+            end
+
+            is_row = isrow(data);
+            d_vec = data(:)';
+            N = length(d_vec);
+            if N <= order + 2
+                return;
+            end
+
+            % Ensure framelen is an odd integer <= N and > order
+            framelen = min(framelen, 2 * floor(N / 2) - 1);
+            if mod(framelen, 2) == 0
+                framelen = framelen - 1;
+            end
+            if framelen <= order
+                framelen = order + 1 + mod(order, 2);
+            end
+            if framelen > N || framelen <= order
+                return;
+            end
+
+            nan_mask = isnan(d_vec);
+            if all(nan_mask)
+                return;
+            end
+
+            if any(nan_mask)
+                d_filled = fillmissing(d_vec, 'linear', 'EndValues', 'nearest');
+            else
+                d_filled = d_vec;
+            end
+
+            try
+                filtered = sgolayfilt(d_filled, order, framelen);
+                filtered(nan_mask) = NaN;
+                if is_row
+                    y_smooth = filtered;
+                else
+                    y_smooth = filtered';
+                end
+            catch
+                % Fallback: return original data if sgolayfilt is unavailable or fails
+                y_smooth = data;
+            end
+        end
+
+        function renderShadedPatch(ax, t_axis, data, color, clamp_01, alpha_val)
+            % renderShadedPatch - Plots a semi-transparent patch for the variance region [mean-std, mean+std].
+            if nargin < 5 || isempty(clamp_01); clamp_01 = false; end
+            if nargin < 6 || isempty(alpha_val); alpha_val = 0.22; end
+            m = mean(data, 'omitnan');
+            s = std(data, 'omitnan');
+            lb = m - s;
+            ub = m + s;
+            if clamp_01
+                lb = max(0.0, lb);
+                ub = min(1.0, ub);
+            end
+            patch(ax, [t_axis(1), t_axis(end), t_axis(end), t_axis(1)], ...
+                [lb, lb, ub, ub], ...
+                color, 'FaceAlpha', alpha_val, 'EdgeColor', 'none', 'HandleVisibility', 'off');
+        end
+
+        function tol_hz = extractTibTolerance(results)
+            % extractTibTolerance - Extracts TiB tolerance band in Hz from results or config.
+            tol_hz = 15; % Default fallback matching AnalysisConfig
+            if isempty(results); return; end
+            if ~iscell(results); results = {results}; end
+            for k = 1:length(results)
+                r = results{k};
+                if isstruct(r)
+                    if isfield(r, 'tol_hz') && ~isempty(r.tol_hz)
+                        tol_hz = r.tol_hz;
+                        return;
+                    elseif isfield(r, 'Config') && isprop(r.Config, 'bw_tib_tolerance_hz')
+                        tol_hz = r.Config.bw_tib_tolerance_hz;
+                        return;
+                    elseif isfield(r, 'meta') && isfield(r.meta, 'tol_hz') && ~isempty(r.meta.tol_hz)
+                        tol_hz = r.meta.tol_hz;
+                        return;
+                    end
+                elseif isobject(r) && isprop(r, 'Config') && isprop(r.Config, 'bw_tib_tolerance_hz')
+                    tol_hz = r.Config.bw_tib_tolerance_hz;
+                    return;
+                end
             end
         end
 
@@ -597,12 +706,9 @@ classdef PlotGenerator
                     'DisplayName', 'Zero Drift (Steady State)');
             end
 
-            % Helper function to plot shaded variance region
-            plotShadedRegion = @(ax, t_axis, data, color) ...
-                patch(ax, [t_axis(1), t_axis(end), t_axis(end), t_axis(1)], ...
-                [mean(data,'omitnan') - std(data,'omitnan'), mean(data,'omitnan') - std(data,'omitnan'), ...
-                mean(data,'omitnan') + std(data,'omitnan'), mean(data,'omitnan') + std(data,'omitnan')], ...
-                color, 'FaceAlpha', 0.22, 'EdgeColor', 'none', 'HandleVisibility', 'off');
+            % Helper function to plot shaded variance region (with optional [0, 1] clamping)
+            plotShadedRegion = @(ax, t_axis, data, color, varargin) ...
+                scooter_analysis.reporting.PlotGenerator.renderShadedPatch(ax, t_axis, data, color, varargin{:});
 
             plotMeanLine = @(ax, t_axis, data, color) ...
                 plot(ax, [t_axis(1), t_axis(end)], [mean(data,'omitnan'), mean(data,'omitnan')], ...
@@ -658,44 +764,62 @@ classdef PlotGenerator
                 d_ent  = scooter_analysis.reporting.PlotGenerator.numericalDerivative(bin_t, bin_ent_m);
                 d_fair = scooter_analysis.reporting.PlotGenerator.numericalDerivative(bin_t, bin_fair_m);
 
+                % Savitzky-Golay filtered derivatives
+                d_tib_sg  = scooter_analysis.reporting.PlotGenerator.applySgolayFilter(d_tib, 2, 15);
+                d_ent_sg  = scooter_analysis.reporting.PlotGenerator.applySgolayFilter(d_ent, 2, 15);
+                d_fair_sg = scooter_analysis.reporting.PlotGenerator.applySgolayFilter(d_fair, 2, 15);
+
                 % --- Row 1: TiB and d(TiB)/dt ---
-                plotShadedRegion(ax1, bin_t, bin_tib_m, c);
+                plotShadedRegion(ax1, bin_t, bin_tib_m, c, true);
                 plotMeanLine(ax1, bin_t, bin_tib_m, c);
                 plot(ax1, bin_t, bin_tib_m, '.-', 'Color', [c, 0.80], 'MarkerSize', 7, 'LineWidth', 1.1, ...
                     'DisplayName', sprintf('%s (Mean: %.2f ± %.2f)', r.meta.name, mean(bin_tib_m,'omitnan'), std(bin_tib_m,'omitnan')));
 
                 plotShadedRegion(ax2, bin_t, d_tib, c);
                 plotMeanLine(ax2, bin_t, d_tib, c);
-                plot(ax2, bin_t, d_tib, '.-', 'Color', [c, 0.80], 'MarkerSize', 7, 'LineWidth', 1.1, ...
-                    'DisplayName', sprintf('%s (μ: %+.1e, σ: %.1e s⁻¹)', r.meta.name, mean(d_tib,'omitnan'), std(d_tib,'omitnan')));
+                plot(ax2, bin_t, d_tib, ':', 'Color', [c, 0.35], 'MarkerSize', 4, 'LineWidth', 0.8, ...
+                    'DisplayName', sprintf('%s (Raw)', r.meta.name));
+                plot(ax2, bin_t, d_tib_sg, '-', 'Color', c, 'LineWidth', 2.0, ...
+                    'DisplayName', sprintf('%s (SG-Filtered)', r.meta.name));
 
                 % --- Row 2: Entropy and d(Entropy)/dt ---
-                plotShadedRegion(ax3, bin_t, bin_ent_m, c);
+                plotShadedRegion(ax3, bin_t, bin_ent_m, c, true);
                 plotMeanLine(ax3, bin_t, bin_ent_m, c);
                 plot(ax3, bin_t, bin_ent_m, '.-', 'Color', [c, 0.80], 'MarkerSize', 7, 'LineWidth', 1.1, ...
                     'DisplayName', sprintf('%s (Mean: %.2f ± %.2f)', r.meta.name, mean(bin_ent_m,'omitnan'), std(bin_ent_m,'omitnan')));
 
                 plotShadedRegion(ax4, bin_t, d_ent, c);
                 plotMeanLine(ax4, bin_t, d_ent, c);
-                plot(ax4, bin_t, d_ent, '.-', 'Color', [c, 0.80], 'MarkerSize', 7, 'LineWidth', 1.1, ...
-                    'DisplayName', sprintf('%s (μ: %+.1e, σ: %.1e s⁻¹)', r.meta.name, mean(d_ent,'omitnan'), std(d_ent,'omitnan')));
+                plot(ax4, bin_t, d_ent, ':', 'Color', [c, 0.35], 'MarkerSize', 4, 'LineWidth', 0.8, ...
+                    'DisplayName', sprintf('%s (Raw)', r.meta.name));
+                plot(ax4, bin_t, d_ent_sg, '-', 'Color', c, 'LineWidth', 2.0, ...
+                    'DisplayName', sprintf('%s (SG-Filtered)', r.meta.name));
 
                 % --- Row 3: Fairness and d(Fairness)/dt ---
-                plotShadedRegion(ax5, bin_t, bin_fair_m, c);
+                plotShadedRegion(ax5, bin_t, bin_fair_m, c, true);
                 plotMeanLine(ax5, bin_t, bin_fair_m, c);
                 plot(ax5, bin_t, bin_fair_m, '.-', 'Color', [c, 0.80], 'MarkerSize', 7, 'LineWidth', 1.1, ...
                     'DisplayName', sprintf('%s (Mean: %.2f ± %.2f)', r.meta.name, mean(bin_fair_m,'omitnan'), std(bin_fair_m,'omitnan')));
 
                 plotShadedRegion(ax6, bin_t, d_fair, c);
                 plotMeanLine(ax6, bin_t, d_fair, c);
-                plot(ax6, bin_t, d_fair, '.-', 'Color', [c, 0.80], 'MarkerSize', 7, 'LineWidth', 1.1, ...
-                    'DisplayName', sprintf('%s (μ: %+.1e, σ: %.1e s⁻¹)', r.meta.name, mean(d_fair,'omitnan'), std(d_fair,'omitnan')));
+                plot(ax6, bin_t, d_fair, ':', 'Color', [c, 0.35], 'MarkerSize', 4, 'LineWidth', 0.8, ...
+                    'DisplayName', sprintf('%s (Raw)', r.meta.name));
+                plot(ax6, bin_t, d_fair_sg, '-', 'Color', c, 'LineWidth', 2.0, ...
+                    'DisplayName', sprintf('%s (SG-Filtered)', r.meta.name));
             end
 
+            % Clamp bounded metrics to [0, 1.02] so variance bands don't overflow
+            ylim(ax1, [0, 1.02]);
+            ylim(ax3, [0, 1.02]);
+            cur_y5 = ylim(ax5);
+            ylim(ax5, [max(0, cur_y5(1)), 1.02]);
+
+            tol_hz = scooter_analysis.reporting.PlotGenerator.extractTibTolerance(results);
             scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax1, ...
-                'Time-in-Band (TiB) - 60s Windows', '', 'TiB Ratio');
+                sprintf('Time-in-Band (TiB, \\pm%g Hz) - 60s Windows', tol_hz), '', 'TiB Ratio');
             scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax2, ...
-                'TiB Rate of Change (Derivative: d(TiB)/dt)', '', 'd(TiB)/dt (s^{-1})');
+                sprintf('TiB Rate of Change (Derivative: d(TiB)/dt, \\pm%g Hz)', tol_hz), '', 'd(TiB)/dt (s^{-1})');
             scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax3, ...
                 'Shannon Entropy (Norm) - 60s Windows', '', 'Entropy (Norm)');
             scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax4, ...
@@ -806,27 +930,39 @@ classdef PlotGenerator
                 d_ent  = scooter_analysis.reporting.PlotGenerator.numericalDerivative(bin_t, bin_ent_m);
                 d_fair = scooter_analysis.reporting.PlotGenerator.numericalDerivative(bin_t, bin_fair_m);
 
+                % Savitzky-Golay filtered derivatives (order 2, frame length 15)
+                d_tib_sg  = scooter_analysis.reporting.PlotGenerator.applySgolayFilter(d_tib, 2, 15);
+                d_ent_sg  = scooter_analysis.reporting.PlotGenerator.applySgolayFilter(d_ent, 2, 15);
+                d_fair_sg = scooter_analysis.reporting.PlotGenerator.applySgolayFilter(d_fair, 2, 15);
+
                 % Subplot 1: d(TiB)/dt
                 plotShadedRegion(ax1, bin_t, d_tib, c);
                 plotMeanLine(ax1, bin_t, d_tib, c);
-                plot(ax1, bin_t, d_tib, '.-', 'Color', [c, 0.80], 'MarkerSize', 7, 'LineWidth', 1.1, ...
-                    'DisplayName', sprintf('%s (μ: %+.1e, σ: %.1e s⁻¹)', r.meta.name, mean(d_tib,'omitnan'), std(d_tib,'omitnan')));
+                plot(ax1, bin_t, d_tib, ':', 'Color', [c, 0.35], 'MarkerSize', 4, 'LineWidth', 0.8, ...
+                    'DisplayName', sprintf('%s (Raw)', r.meta.name));
+                plot(ax1, bin_t, d_tib_sg, '-', 'Color', c, 'LineWidth', 2.0, ...
+                    'DisplayName', sprintf('%s (SG-Filtered, μ: %+.1e, σ: %.1e s⁻¹)', r.meta.name, mean(d_tib_sg,'omitnan'), std(d_tib_sg,'omitnan')));
 
                 % Subplot 2: d(Entropy)/dt
                 plotShadedRegion(ax2, bin_t, d_ent, c);
                 plotMeanLine(ax2, bin_t, d_ent, c);
-                plot(ax2, bin_t, d_ent, '.-', 'Color', [c, 0.80], 'MarkerSize', 7, 'LineWidth', 1.1, ...
-                    'DisplayName', sprintf('%s (μ: %+.1e, σ: %.1e s⁻¹)', r.meta.name, mean(d_ent,'omitnan'), std(d_ent,'omitnan')));
+                plot(ax2, bin_t, d_ent, ':', 'Color', [c, 0.35], 'MarkerSize', 4, 'LineWidth', 0.8, ...
+                    'DisplayName', sprintf('%s (Raw)', r.meta.name));
+                plot(ax2, bin_t, d_ent_sg, '-', 'Color', c, 'LineWidth', 2.0, ...
+                    'DisplayName', sprintf('%s (SG-Filtered, μ: %+.1e, σ: %.1e s⁻¹)', r.meta.name, mean(d_ent_sg,'omitnan'), std(d_ent_sg,'omitnan')));
 
                 % Subplot 3: d(Fairness)/dt
                 plotShadedRegion(ax3, bin_t, d_fair, c);
                 plotMeanLine(ax3, bin_t, d_fair, c);
-                plot(ax3, bin_t, d_fair, '.-', 'Color', [c, 0.80], 'MarkerSize', 7, 'LineWidth', 1.1, ...
-                    'DisplayName', sprintf('%s (μ: %+.1e, σ: %.1e s⁻¹)', r.meta.name, mean(d_fair,'omitnan'), std(d_fair,'omitnan')));
+                plot(ax3, bin_t, d_fair, ':', 'Color', [c, 0.35], 'MarkerSize', 4, 'LineWidth', 0.8, ...
+                    'DisplayName', sprintf('%s (Raw)', r.meta.name));
+                plot(ax3, bin_t, d_fair_sg, '-', 'Color', c, 'LineWidth', 2.0, ...
+                    'DisplayName', sprintf('%s (SG-Filtered, μ: %+.1e, σ: %.1e s⁻¹)', r.meta.name, mean(d_fair_sg,'omitnan'), std(d_fair_sg,'omitnan')));
             end
 
+            tol_hz = scooter_analysis.reporting.PlotGenerator.extractTibTolerance(results);
             scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax1, ...
-                'Time-in-Band Rate of Change (Derivative: d(TiB)/dt)', '', 'd(TiB)/dt (s^{-1})');
+                sprintf('Time-in-Band Rate of Change (Derivative: d(TiB)/dt, \\pm%g Hz)', tol_hz), '', 'd(TiB)/dt (s^{-1})');
             scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax2, ...
                 'Shannon Entropy Rate of Change (Derivative: d(H)/dt)', '', 'd(Entropy)/dt (s^{-1})');
             scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax3, ...
@@ -953,11 +1089,26 @@ classdef PlotGenerator
                 items = varargin;
             end
 
+            error_type = 'std'; % Default: sample standard deviation (SD)
+            if ~isempty(items) && (ischar(items{end}) || isstring(items{end})) && ...
+                    ismember(lower(string(items{end})), ["std", "sem"])
+                error_type = char(lower(string(items{end})));
+                items = items(1:end-1);
+            end
+
             bin_dur_sec = 60.0;
             if ~isempty(items) && isnumeric(items{end}) && isscalar(items{end})
                 bin_dur_sec = items{end};
                 items = items(1:end-1);
             end
+
+            % Re-check error_type in case order was (..., bin_dur, 'std')
+            if ~isempty(items) && (ischar(items{end}) || isstring(items{end})) && ...
+                    ismember(lower(string(items{end})), ["std", "sem"])
+                error_type = char(lower(string(items{end})));
+                items = items(1:end-1);
+            end
+            use_std = strcmpi(error_type, 'std');
 
             if length(items) == 1 && iscell(items{1})
                 items = items{1};
@@ -1032,7 +1183,14 @@ classdef PlotGenerator
                 vis_state = 'on';
             end
 
-            fig = figure('Name', sprintf('Bandwidth Distribution (%ds Slices) & Std Error', round(bin_dur_sec)), ...
+            err_name_str = 'Standard Deviation';
+            err_sym_str  = 'SD';
+            if ~use_std
+                err_name_str = 'Standard Error';
+                err_sym_str  = 'SE';
+            end
+
+            fig = figure('Name', sprintf('Bandwidth Distribution (%ds Slices) & %s', round(bin_dur_sec), err_name_str), ...
                 'Position', [60, 60, 1400, 850], 'Color', [0.08 0.11 0.17], 'Visible', vis_state);
 
             % --- Subplot 1: 60s Mean Bandwidth Distribution Histogram ---
@@ -1115,10 +1273,14 @@ classdef PlotGenerator
                 end
 
                 m_val = mean(ds.slice_means);
-                std_val = std(ds.slice_means);
-                sem_overall = mean(ds.slice_sems);
+                macro_std = std(ds.slice_means);
+                if use_std
+                    within_slice_err = mean(ds.slice_stds);
+                else
+                    within_slice_err = mean(ds.slice_sems);
+                end
                 xline(ax1, m_val, '--', 'Color', ec, 'LineWidth', 1.8, ...
-                    'DisplayName', sprintf('%s Mean: %.1f ± %.1f Hz (std: %.1f)', ds.name, m_val, sem_overall, std_val));
+                    'DisplayName', sprintf('%s Mean: %.1f ± %.1f Hz (std: %.1f)', ds.name, m_val, within_slice_err, macro_std));
             end
 
             max_p_all = max(P_matrix(:));
@@ -1132,49 +1294,59 @@ classdef PlotGenerator
             lgd1 = legend(ax1, 'Location', 'best');
             scooter_analysis.reporting.PlotGenerator.styleLegend(lgd1);
 
-            % --- Subplot 2: Standard Error Distribution Across Slices ---
+            % --- Subplot 2: Standard Deviation / Error Distribution Across Slices ---
             ax2 = subplot(2, 2, 2);
             hold(ax2, 'on');
 
-            all_sems_concat = vertcat(binned_datasets{:});
-            all_sems_concat = vertcat(all_sems_concat.slice_sems);
-            min_sem = max(0, min(all_sems_concat) * 0.8);
-            if length(all_sems_concat) >= 10
-                p99 = prctile(all_sems_concat, 99);
-                max_sem = max(p99 * 1.25, 4.0);
-                if max_sem > max(all_sems_concat); max_sem = max(all_sems_concat) * 1.05; end
+            if use_std
+                all_err_concat = vertcat(binned_datasets{:});
+                all_err_concat = vertcat(all_err_concat.slice_stds);
             else
-                max_sem = max(all_sems_concat) * 1.1;
+                all_err_concat = vertcat(binned_datasets{:});
+                all_err_concat = vertcat(all_err_concat.slice_sems);
             end
-            num_sem_bins = min(20, max(8, round(sqrt(length(all_sems_concat)))));
-            sem_edges = linspace(min_sem, max_sem, num_sem_bins + 1);
+            min_err = max(0, min(all_err_concat) * 0.8);
+            if length(all_err_concat) >= 10
+                p99 = prctile(all_err_concat, 99);
+                max_err = max(p99 * 1.25, 4.0);
+                if max_err > max(all_err_concat); max_err = max(all_err_concat) * 1.05; end
+            else
+                max_err = max(all_err_concat) * 1.1;
+            end
+            num_err_bins = min(20, max(8, round(sqrt(length(all_err_concat)))));
+            err_edges = linspace(min_err, max_err, num_err_bins + 1);
 
             for k = 1:num_ds
                 ds = binned_datasets{k};
                 [c, ec] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
 
-                % Clip any extreme outlier SE values to max_sem so all data is represented
-                clamped_sems = min(ds.slice_sems, max_sem);
+                if use_std
+                    slice_err_vec = ds.slice_stds;
+                else
+                    slice_err_vec = ds.slice_sems;
+                end
+                % Clip any extreme outlier values to max_err so all data is represented
+                clamped_err = min(slice_err_vec, max_err);
 
-                histogram(ax2, clamped_sems, sem_edges, 'Normalization', 'probability', ...
+                histogram(ax2, clamped_err, err_edges, 'Normalization', 'probability', ...
                     'FaceColor', c, 'EdgeColor', ec, 'FaceAlpha', 0.60, ...
-                    'DisplayName', sprintf('%s (Avg SE: %.2f Hz)', ds.name, mean(ds.slice_sems)));
+                    'DisplayName', sprintf('%s (Avg %s: %.2f Hz)', ds.name, err_sym_str, mean(slice_err_vec)));
 
-                mean_se = mean(ds.slice_sems);
-                xline(ax2, mean_se, '--', 'Color', ec, 'LineWidth', 1.8, ...
-                    'DisplayName', sprintf('%s Avg SE: %.2f Hz', ds.name, mean_se));
+                mean_err = mean(slice_err_vec);
+                xline(ax2, mean_err, '--', 'Color', ec, 'LineWidth', 1.8, ...
+                    'DisplayName', sprintf('%s Avg %s: %.2f Hz', ds.name, err_sym_str, mean_err));
             end
 
             ylim(ax2, [0, 1.05]);
 
             scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax2, ...
-                sprintf('Standard Error Distribution Across %ds Slices (Normalized)', round(bin_dur_sec)), ...
-                'Standard Error SE (Hz)', ...
+                sprintf('%s Distribution Across %ds Slices (Normalized)', err_name_str, round(bin_dur_sec)), ...
+                sprintf('%s %s (Hz)', err_name_str, err_sym_str), ...
                 'Normalized Probability');
             lgd2 = legend(ax2, 'Location', 'best');
             scooter_analysis.reporting.PlotGenerator.styleLegend(lgd2);
 
-            % --- Subplot 3: Mean Bandwidth with Error Bars (±SE) vs Time ---
+            % --- Subplot 3: Mean Bandwidth with Error Bars (±SD or ±SE) vs Time ---
             ax3 = subplot(2, 2, 3);
             hold(ax3, 'on');
 
@@ -1182,20 +1354,41 @@ classdef PlotGenerator
                 ds = binned_datasets{k};
                 [c, ~] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
                 t_min = ds.slice_times / 60;
+                if use_std
+                    slice_err_vec = ds.slice_stds;
+                else
+                    slice_err_vec = ds.slice_sems;
+                end
 
-                errorbar(ax3, t_min, ds.slice_means, ds.slice_sems, '.-', ...
-                    'Color', c, 'MarkerSize', 10, 'LineWidth', 1.2, 'CapSize', 4, ...
-                    'DisplayName', sprintf('%s (Mean: %.1f Hz)', ds.name, mean(ds.slice_means)));
+                t_row = t_min(:)';
+                y_row = ds.slice_means(:)';
+                err_row = slice_err_vec(:)';
+                valid_mask = ~isnan(t_row) & ~isnan(y_row) & ~isnan(err_row);
+                t_valid = t_row(valid_mask);
+                y_valid = y_row(valid_mask);
+                err_valid = err_row(valid_mask);
+
+                if ~isempty(t_valid)
+                    upper_bound = y_valid + err_valid;
+                    lower_bound = max(0, y_valid - err_valid);
+
+                    patch(ax3, [t_valid, fliplr(t_valid)], [upper_bound, fliplr(lower_bound)], ...
+                        c, 'FaceAlpha', 0.20, 'EdgeColor', 'none', 'HandleVisibility', 'off');
+
+                    plot(ax3, t_valid, y_valid, '.-', ...
+                        'Color', [c, 0.90], 'MarkerSize', 8, 'LineWidth', 1.2, ...
+                        'DisplayName', sprintf('%s (Mean: %.1f Hz)', ds.name, mean(y_valid)));
+                end
             end
 
             scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax3, ...
-                sprintf('%ds Slice Mean Bandwidth with Error Bars (±SE)', round(bin_dur_sec)), ...
+                sprintf('%ds Slice Mean Bandwidth with Shaded ±%s', round(bin_dur_sec), err_sym_str), ...
                 'Elapsed Time (minutes)', ...
-                'Mean Bandwidth ± SE (Hz)');
+                sprintf('Mean Bandwidth ± %s (Hz)', err_sym_str));
             lgd3 = legend(ax3, 'Location', 'best');
             scooter_analysis.reporting.PlotGenerator.styleLegend(lgd3);
 
-            % --- Subplot 4: Standard Error for Each Slice vs Time ---
+            % --- Subplot 4: Standard Deviation / Error for Each Slice vs Time ---
             ax4 = subplot(2, 2, 4);
             hold(ax4, 'on');
 
@@ -1203,18 +1396,23 @@ classdef PlotGenerator
                 ds = binned_datasets{k};
                 [c, ~] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
                 t_min = ds.slice_times / 60;
+                if use_std
+                    slice_err_vec = ds.slice_stds;
+                else
+                    slice_err_vec = ds.slice_sems;
+                end
 
-                plot(ax4, t_min, ds.slice_sems, '.-', 'Color', c, 'LineWidth', 1.2, ...
-                    'MarkerSize', 10, 'DisplayName', sprintf('%s (Avg SE: %.2f Hz)', ds.name, mean(ds.slice_sems)));
+                plot(ax4, t_min, slice_err_vec, '.-', 'Color', c, 'LineWidth', 1.2, ...
+                    'MarkerSize', 10, 'DisplayName', sprintf('%s (Avg %s: %.2f Hz)', ds.name, err_sym_str, mean(slice_err_vec)));
 
-                yline(ax4, mean(ds.slice_sems), ':', 'Color', c, 'LineWidth', 1.5, ...
+                yline(ax4, mean(slice_err_vec), ':', 'Color', c, 'LineWidth', 1.5, ...
                     'HandleVisibility', 'off');
             end
 
             scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax4, ...
-                sprintf('Standard Error for Each %ds Slice', round(bin_dur_sec)), ...
+                sprintf('%s for Each %ds Slice', err_name_str, round(bin_dur_sec)), ...
                 'Elapsed Time (minutes)', ...
-                'Standard Error SE (Hz)');
+                sprintf('%s %s (Hz)', err_name_str, err_sym_str));
             lgd4 = legend(ax4, 'Location', 'best');
             scooter_analysis.reporting.PlotGenerator.styleLegend(lgd4);
 

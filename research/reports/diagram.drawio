@@ -1,0 +1,103 @@
+<mxfile host="Electron">
+  <diagram name="Page-1" id="M-cdpK0hdCaFGf2hDsrF">
+    <mxGraphModel dx="1414" dy="841" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="joVNavcFF144xromVXao-15" connectable="0" parent="1" style="group;fillColor=#ffcd28;gradientColor=#ffa500;strokeColor=#d79b00;" value="" vertex="1">
+          <mxGeometry height="160" width="200" x="470" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-10" parent="joVNavcFF144xromVXao-15" style="rounded=0;whiteSpace=wrap;html=1;align=center;labelPosition=center;verticalLabelPosition=top;verticalAlign=bottom;fontSize=16;" value="Combine" vertex="1">
+          <mxGeometry height="160" width="200" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-14" connectable="0" parent="joVNavcFF144xromVXao-15" style="group" value="" vertex="1">
+          <mxGeometry height="112.5" width="120" x="40" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-11" parent="joVNavcFF144xromVXao-14" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#ffcd28;gradientColor=#ffa500;strokeColor=#d79b00;" value="Combine" vertex="1">
+          <mxGeometry height="60" width="120" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-12" parent="joVNavcFF144xromVXao-14" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#ffcd28;gradientColor=#ffa500;strokeColor=#d79b00;" value="std" vertex="1">
+          <mxGeometry height="35" width="50" x="70" y="75" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-13" parent="joVNavcFF144xromVXao-14" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#ffcd28;gradientColor=#ffa500;strokeColor=#d79b00;" value="mean" vertex="1">
+          <mxGeometry height="40" width="60" y="72.5" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-16" connectable="0" parent="1" style="group;verticalAlign=top;labelPosition=center;verticalLabelPosition=top;align=center;" value="" vertex="1">
+          <mxGeometry height="160" width="320" x="60" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-1" parent="joVNavcFF144xromVXao-16" style="whiteSpace=wrap;html=1;align=center;labelPosition=center;verticalLabelPosition=top;verticalAlign=bottom;fontSize=16;" value="Stability" vertex="1">
+          <mxGeometry height="160" width="320" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-8" connectable="0" parent="joVNavcFF144xromVXao-16" style="group" value="" vertex="1">
+          <mxGeometry height="110" width="120" x="30" y="25" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-3" parent="joVNavcFF144xromVXao-8" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#d0cee2;strokeColor=#56517e;" value="Time in Band" vertex="1">
+          <mxGeometry height="60" width="140" x="-20" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-5" parent="joVNavcFF144xromVXao-8" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#d0cee2;strokeColor=#56517e;" value="dt" vertex="1">
+          <mxGeometry height="40" width="40" x="80" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-9" connectable="0" parent="joVNavcFF144xromVXao-16" style="group" value="" vertex="1">
+          <mxGeometry height="110" width="140" x="170" y="25" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-2" parent="joVNavcFF144xromVXao-9" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#bac8d3;strokeColor=#23445d;" value="Jain&#39;s Index" vertex="1">
+          <mxGeometry height="60" width="140" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-6" parent="joVNavcFF144xromVXao-9" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#bac8d3;strokeColor=#23445d;" value="mean" vertex="1">
+          <mxGeometry height="40" width="50" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-4" parent="joVNavcFF144xromVXao-16" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#d0cee2;strokeColor=#56517e;" value="mean" vertex="1">
+          <mxGeometry height="40" width="50" x="10" y="95" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-30" parent="joVNavcFF144xromVXao-16" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#d0cee2;strokeColor=#56517e;" value="std" vertex="1">
+          <mxGeometry height="40" width="40" x="65" y="95" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-7" parent="joVNavcFF144xromVXao-16" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#bac8d3;strokeColor=#23445d;" value="dt" vertex="1">
+          <mxGeometry height="40" width="40" x="270" y="95" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-31" parent="joVNavcFF144xromVXao-16" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#bac8d3;strokeColor=#23445d;" value="std" vertex="1">
+          <mxGeometry height="40" width="40" x="225" y="95" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-19" edge="1" parent="1" source="joVNavcFF144xromVXao-17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="joVNavcFF144xromVXao-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-17" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e6d0de;gradientColor=#d5739d;strokeColor=#996185;" value="BANDWIDTH PARAMETER MATRIX" vertex="1">
+          <mxGeometry height="60" width="175" x="338" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-18" edge="1" parent="1" source="joVNavcFF144xromVXao-17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="joVNavcFF144xromVXao-1">
+          <mxGeometry relative="1" x="0.0395" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-41" edge="1" parent="1" source="joVNavcFF144xromVXao-32" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="joVNavcFF144xromVXao-33">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-42" edge="1" parent="1" source="joVNavcFF144xromVXao-32" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="joVNavcFF144xromVXao-34">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-32" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e6d0de;gradientColor=#d5739d;strokeColor=#996185;" value="Deep RL&amp;nbsp;" vertex="1">
+          <mxGeometry height="130" width="314" x="236" y="350" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-34" parent="1" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#dae8fc;gradientColor=none;strokeColor=#6c8ebf;" value="Surface" vertex="1">
+          <mxGeometry height="50" width="120" x="440" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-39" connectable="0" parent="1" style="group;fillColor=#dae8fc;gradientColor=#7ea6e0;strokeColor=#6c8ebf;" value="" vertex="1">
+          <mxGeometry height="50" width="120" x="230" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-33" parent="joVNavcFF144xromVXao-39" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;labelPosition=center;verticalLabelPosition=top;align=center;verticalAlign=bottom;fillStyle=solid;fillColor=#dae8fc;gradientColor=none;strokeColor=#6c8ebf;" value="Underwater" vertex="1">
+          <mxGeometry height="50" width="120" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-35" parent="joVNavcFF144xromVXao-39" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillStyle=solid;fillColor=#dae8fc;gradientColor=none;strokeColor=#6c8ebf;" value="AUV" vertex="1">
+          <mxGeometry height="30" width="50" x="64" y="10" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-36" parent="joVNavcFF144xromVXao-39" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillStyle=solid;fillColor=#dae8fc;gradientColor=none;strokeColor=#6c8ebf;" value="DPV" vertex="1">
+          <mxGeometry height="30" width="50" x="6" y="10" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-43" parent="1" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;" value="Agent" vertex="1">
+          <mxGeometry height="30" width="50" x="260" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="joVNavcFF144xromVXao-44" parent="1" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;" value="Environment" vertex="1">
+          <mxGeometry height="30" width="90" x="450" y="370" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

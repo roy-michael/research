@@ -73,7 +73,7 @@ classdef FileResult
             bws = bws(isfinite(bws) & bws > 0);
             
             slice_dur = 0.500;
-            tol_hz = 10;
+            tol_hz = 15;
             if ~isempty(obj.segments) && isfield(obj.segments(1).slice_bw, 'fairness_window_sec') && ...
                     ~isempty(obj.segments(1).slice_bw.fairness_window_sec) && length(obj.segments) == 1
                 win_sizes = obj.segments(1).slice_bw.fairness_window_sec;
@@ -95,6 +95,7 @@ classdef FileResult
             
             res = struct();
             res.meta.name = custom_name;
+            res.tol_hz = tol_hz;
             res.slice_bw.all_main_bws = bws;
             res.slice_bw.fairness_window_sec = win_sizes;
             res.slice_bw.all_tib = all_tib;
@@ -111,7 +112,7 @@ classdef FileResult
             bws = bws(isfinite(bws) & bws > 0);
             
             slice_dur = 0.500;
-            tol_hz = 10;
+            tol_hz = 15;
             [t_centers, tib_series, ent_series, fair_series, mean_bw, std_bw] = ...
                 BandwidthTracker.compute_rolling_stability(bws, slice_dur, window_sec, tol_hz);
                 
@@ -124,6 +125,7 @@ classdef FileResult
             res.mean_bw = mean_bw;
             res.std_bw = std_bw;
             res.window_sec = window_sec;
+            res.tol_hz = tol_hz;
         end
         
         function res = getBinnedBandwidthResult(obj, bin_dur_sec, custom_name)

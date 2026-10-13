@@ -46,6 +46,7 @@ classdef AnalysisConfig
         bw_smooth_method  (1,:) char = 'welch'
         bw_smooth_window  (1,1) double = 5
         bw_tib_tolerance_hz (1,1) double = 10
+        bw_entropy_max_bins (1,1) double = 20   % Maximum histogram bins for adaptive Shannon entropy
 
         % High-Pass Filter
         hp_cutoff        (1,1) double = 0        % High-pass filter cutoff (0 = auto, uses f_low)

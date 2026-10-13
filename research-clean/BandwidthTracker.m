@@ -86,9 +86,15 @@ classdef BandwidthTracker
 
             % --- Step 3: Compute multiscale stability vs window size curves ---
             total_time_sec = num_slices * slice_dur_sec;
+            max_bins = 20;
+            if isfield(cfg, 'entropy_max_bins') && ~isempty(cfg.entropy_max_bins)
+                max_bins = cfg.entropy_max_bins;
+            elseif isprop(cfg, 'bw_entropy_max_bins')
+                max_bins = cfg.bw_entropy_max_bins;
+            end
             [win_sizes, all_tib, all_entropy, all_fairness] = ...
                 BandwidthTracker.compute_stability_vs_window(...
-                    all_main_bws, slice_dur_sec, total_time_sec, cfg.tib_tolerance_hz);
+                    all_main_bws, slice_dur_sec, total_time_sec, cfg.tib_tolerance_hz, max_bins);
 
             % --- Step 4: Extract midpoint representative slice for detailed diagnostics ---
             center_idx = round(total_samples / 2);
@@ -328,7 +334,7 @@ classdef BandwidthTracker
         % =================================================================
 
         function [window_sizes_sec, mean_tib, mean_entropy, mean_fairness] = ...
-                compute_stability_vs_window(bw_array, slice_dur_sec, total_time_sec, tol_hz)
+                compute_stability_vs_window(bw_array, slice_dur_sec, total_time_sec, tol_hz, max_bins)
             % COMPUTE_STABILITY_VS_WINDOW Evaluates fairness/stability across window sizes.
             %
             % Sweeps window duration W from 2 seconds to total_time_sec in 2-second increments.
@@ -337,13 +343,14 @@ classdef BandwidthTracker
             %
             % Syntax:
             %   [win_sizes, tib, entropy, fairness] = BandwidthTracker.compute_stability_vs_window(...
-            %       bw_array, slice_dur_sec, total_time_sec, tol_hz)
+            %       bw_array, slice_dur_sec, total_time_sec, tol_hz, max_bins)
             %
             % Inputs:
             %   bw_array       - Vector of instantaneous bandwidth values (Hz)
             %   slice_dur_sec  - Duration per slice in seconds (e.g. 0.5 s)
             %   total_time_sec - Total duration of the recording in seconds
             %   tol_hz         - Tolerance band for Time-in-Band calculation (default: 10 Hz)
+            %   max_bins       - Maximum histogram bins for adaptive Shannon entropy (default: 20)
             %
             % Outputs:
             %   window_sizes_sec - Vector of tested window durations (s)
@@ -352,6 +359,7 @@ classdef BandwidthTracker
             %   mean_fairness    - Average Jain's Fairness Index vs window size
 
             if nargin < 4 || isempty(tol_hz); tol_hz = 10; end
+            if nargin < 5 || isempty(max_bins); max_bins = 20; end
 
             % 5-second median pre-filter to eliminate single-sample impulse noise
             bw_array = medfilt1(bw_array, max(3, round(5 / slice_dur_sec)));
@@ -370,7 +378,6 @@ classdef BandwidthTracker
 
             fs_samples = 1 / slice_dur_sec;
             T          = length(bw_array);
-            num_bins   = 20;
 
             for idx = 1:length(window_sizes_sec)
                 win_sec = window_sizes_sec(idx);
@@ -405,16 +412,25 @@ classdef BandwidthTracker
                     med_val       = median(block_data);
                     tib_blocks(b) = sum(abs(block_data - med_val) <= tol_hz) / M;
 
-                    % 2. Normalized Shannon Entropy (H_norm)
-                    [counts, ~] = histcounts(block_data, num_bins);
-                    p           = counts / sum(counts);
-                    p           = p(p > 0);
-                    if isempty(p) || isscalar(p)
-                        ent_blocks(b) = 0; % All values in a single bin = perfectly concentrated
+                    % 2. Normalized Shannon Entropy (H_norm) with adaptive binning
+                    % Adaptive bin count scales dynamically with sample count M:
+                    %   k = min([max_bins, M, max(2, round(sqrt(M) * 1.8))])
+                    % Eliminates finite-sample distortion for short windows (e.g. M < 20),
+                    % while smoothly matching max_bins (20) for standard 60-second windows (M = 120).
+                    if M < 2
+                        ent_blocks(b) = 0; % Single sample has zero dispersion
                     else
-                        H             = -sum(p .* log2(p));
-                        H_max         = log2(length(counts));
-                        ent_blocks(b) = H / H_max;
+                        num_bins    = min([max_bins, M, max(2, round(sqrt(M) * 1.8))]);
+                        [counts, ~] = histcounts(block_data, num_bins);
+                        p           = counts / sum(counts);
+                        p           = p(p > 0);
+                        if isempty(p) || isscalar(p)
+                            ent_blocks(b) = 0; % All values in a single bin = perfectly concentrated
+                        else
+                            H             = -sum(p .* log2(p));
+                            H_max         = log2(length(counts));
+                            ent_blocks(b) = H / H_max;
+                        end
                     end
 
                     % 3. Jain's Fairness Index
@@ -434,7 +450,7 @@ classdef BandwidthTracker
         end
 
         function [t_centers, tib_series, ent_series, fair_series, mean_bw, std_bw] = ...
-                compute_rolling_stability(bw_array, slice_dur_sec, window_sec, tol_hz, stride_sec)
+                compute_rolling_stability(bw_array, slice_dur_sec, window_sec, tol_hz, stride_sec, max_bins)
             % COMPUTE_ROLLING_STABILITY Computes temporal stability metrics over time windows.
             %
             % Slides a window of duration window_sec across the bandwidth time series.
@@ -443,7 +459,7 @@ classdef BandwidthTracker
             %
             % Syntax:
             %   [t_centers, tib, ent, fair, m_bw, s_bw] = BandwidthTracker.compute_rolling_stability(...
-            %       bw_array, slice_dur_sec, window_sec, tol_hz, stride_sec)
+            %       bw_array, slice_dur_sec, window_sec, tol_hz, stride_sec, max_bins)
             %
             % Inputs:
             %   bw_array      - Vector of instantaneous bandwidth values (Hz)
@@ -451,6 +467,7 @@ classdef BandwidthTracker
             %   window_sec    - Window duration in seconds (e.g. 60 s)
             %   tol_hz        - Time-in-Band tolerance in Hz (default: 10 Hz)
             %   stride_sec    - Stride interval in seconds (default: window_sec -> full window step)
+            %   max_bins      - Maximum histogram bins for adaptive Shannon entropy (default: 20)
             %
             % Outputs:
             %   t_centers   - Center timestamp of each window in seconds
@@ -462,6 +479,7 @@ classdef BandwidthTracker
 
             if nargin < 4 || isempty(tol_hz); tol_hz = 10; end
             if nargin < 5 || isempty(stride_sec); stride_sec = window_sec; end % Default: full window step
+            if nargin < 6 || isempty(max_bins); max_bins = 20; end
 
             % 5-second median pre-filter to smooth transient noise spikes
             bw_array = medfilt1(bw_array, max(3, round(5 / slice_dur_sec)));
@@ -487,8 +505,6 @@ classdef BandwidthTracker
             fair_series = zeros(1, num_windows);
             mean_bw     = zeros(1, num_windows);
             std_bw      = zeros(1, num_windows);
-
-            num_bins = 20;
 
             for b = 1:num_windows
                 start_idx  = (b - 1) * step_samples + 1;
@@ -519,16 +535,25 @@ classdef BandwidthTracker
                 med_val       = median(block_data);
                 tib_series(b) = sum(abs(block_data - med_val) <= tol_hz) / M;
 
-                % 2. Normalized Shannon Entropy (H_norm): Frequency dispersion across 20 bins
-                [counts, ~] = histcounts(block_data, num_bins);
-                p           = counts / sum(counts);
-                p           = p(p > 0);
-                if isempty(p) || isscalar(p)
-                    ent_series(b) = 0; % Perfectly concentrated in a single bin
+                % 2. Normalized Shannon Entropy (H_norm): Frequency dispersion with adaptive binning
+                % Adaptive bin count scales dynamically with sample count M:
+                %   k = min([max_bins, M, max(2, round(sqrt(M) * 1.8))])
+                % Eliminates finite-sample distortion for short windows (e.g. M < 20),
+                % while smoothly matching max_bins (20) for standard 60-second windows (M = 120).
+                if M < 2
+                    ent_series(b) = 0; % Single sample has zero dispersion
                 else
-                    H             = -sum(p .* log2(p));
-                    H_max         = log2(length(counts));
-                    ent_series(b) = H / H_max;
+                    num_bins    = min([max_bins, M, max(2, round(sqrt(M) * 1.8))]);
+                    [counts, ~] = histcounts(block_data, num_bins);
+                    p           = counts / sum(counts);
+                    p           = p(p > 0);
+                    if isempty(p) || isscalar(p)
+                        ent_series(b) = 0; % Perfectly concentrated in a single bin
+                    else
+                        H             = -sum(p .* log2(p));
+                        H_max         = log2(length(counts));
+                        ent_series(b) = H / H_max;
+                    end
                 end
 
                 % 3. Jain's Fairness Index: Bandwidth equality (1.0 = zero variance)

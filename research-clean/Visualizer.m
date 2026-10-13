@@ -392,7 +392,14 @@ classdef Visualizer
                 end
             end
             ylim(ax2, [0, 1.05]);
-            Visualizer.applyAxesStyle(ax2, 'Mean Time-in-Band Stability', 'Window Size N (seconds)', 'Mean Time-in-Band (TiB)');
+            tol_hz = 15;
+            for k = 1:num_data
+                if isfield(results{k}, 'tol_hz') && ~isempty(results{k}.tol_hz)
+                    tol_hz = results{k}.tol_hz;
+                    break;
+                end
+            end
+            Visualizer.applyAxesStyle(ax2, sprintf('Mean Time-in-Band Stability (\\pm%g Hz)', tol_hz), 'Window Size N (seconds)', 'Mean Time-in-Band (TiB)');
             lgd2 = legend(ax2, 'Location', 'best');
             Visualizer.styleLegend(lgd2);
 
@@ -471,7 +478,7 @@ classdef Visualizer
         % Figure 4-B: Binned Bandwidth Distribution & Standard Error
         % =================================================================
 
-        function render_binned_bandwidth_distribution(results, cfg, bin_dur_sec)
+        function render_binned_bandwidth_distribution(results, cfg, bin_dur_sec, error_type)
             if nargin < 2
                 cfg = struct();
             elseif ischar(cfg) || isstring(cfg)
@@ -480,6 +487,10 @@ classdef Visualizer
             if nargin < 3 || isempty(bin_dur_sec)
                 bin_dur_sec = 60.0;
             end
+            if nargin < 4 || isempty(error_type)
+                error_type = 'std'; % Default: sample standard deviation (SD)
+            end
+            use_std = strcmpi(error_type, 'std');
             
             num_data = length(results);
             if num_data < 1
@@ -530,7 +541,14 @@ classdef Visualizer
                 return;
             end
 
-            fig = figure('Name', sprintf('Figure 4-B: %ds Slice Bandwidth Distribution & Std Error', round(bin_dur_sec)), ...
+            err_name_str = 'Standard Deviation';
+            err_sym_str  = 'SD';
+            if ~use_std
+                err_name_str = 'Standard Error';
+                err_sym_str  = 'SE';
+            end
+
+            fig = figure('Name', sprintf('Figure 4-B: %ds Slice Bandwidth Distribution & %s', round(bin_dur_sec), err_name_str), ...
                 'Color', [0.08 0.11 0.17], 'Position', [50, 80, 1400, 850]);
 
             % --- Subplot 1: 60s Mean Bandwidth Distribution Histogram ---
@@ -611,10 +629,14 @@ classdef Visualizer
                 end
 
                 m_val = mean(ds.slice_means);
-                std_val = std(ds.slice_means);
-                sem_overall = mean(ds.slice_sems);
+                macro_std = std(ds.slice_means);
+                if use_std
+                    within_slice_err = mean(ds.slice_stds);
+                else
+                    within_slice_err = mean(ds.slice_sems);
+                end
                 xline(ax1, m_val, '--', 'Color', ec, 'LineWidth', 1.8, ...
-                    'DisplayName', sprintf('%s Mean: %.1f ± %.1f Hz (std: %.1f)', ds.name, m_val, sem_overall, std_val));
+                    'DisplayName', sprintf('%s Mean: %.1f ± %.1f Hz (std: %.1f)', ds.name, m_val, within_slice_err, macro_std));
             end
 
             max_p_all = max(P_matrix(:));
@@ -626,46 +648,56 @@ classdef Visualizer
             lgd1 = legend(ax1, 'Location', 'best');
             Visualizer.styleLegend(lgd1);
 
-            % --- Subplot 2: Standard Error Distribution Across Slices ---
+            % --- Subplot 2: Standard Deviation / Error Distribution Across Slices ---
             ax2 = subplot(2, 2, 2);
             hold(ax2, 'on');
 
-            all_sems_concat = vertcat(binned_datasets{:});
-            all_sems_concat = vertcat(all_sems_concat.slice_sems);
-            min_sem = max(0, min(all_sems_concat) * 0.8);
-            if length(all_sems_concat) >= 10
-                p99 = prctile(all_sems_concat, 99);
-                max_sem = max(p99 * 1.25, 4.0);
-                if max_sem > max(all_sems_concat); max_sem = max(all_sems_concat) * 1.05; end
+            if use_std
+                all_err_concat = vertcat(binned_datasets{:});
+                all_err_concat = vertcat(all_err_concat.slice_stds);
             else
-                max_sem = max(all_sems_concat) * 1.1;
+                all_err_concat = vertcat(binned_datasets{:});
+                all_err_concat = vertcat(all_err_concat.slice_sems);
             end
-            num_sem_bins = min(20, max(8, round(sqrt(length(all_sems_concat)))));
-            sem_edges = linspace(min_sem, max_sem, num_sem_bins + 1);
+            min_err = max(0, min(all_err_concat) * 0.8);
+            if length(all_err_concat) >= 10
+                p99 = prctile(all_err_concat, 99);
+                max_err = max(p99 * 1.25, 4.0);
+                if max_err > max(all_err_concat); max_err = max(all_err_concat) * 1.05; end
+            else
+                max_err = max(all_err_concat) * 1.1;
+            end
+            num_err_bins = min(20, max(8, round(sqrt(length(all_err_concat)))));
+            err_edges = linspace(min_err, max_err, num_err_bins + 1);
 
             for k = 1:num_ds
                 ds = binned_datasets{k};
                 [c, ec] = Visualizer.getDatasetColor(ds.name, k);
 
-                clamped_sems = min(ds.slice_sems, max_sem);
+                if use_std
+                    slice_err_vec = ds.slice_stds;
+                else
+                    slice_err_vec = ds.slice_sems;
+                end
+                clamped_err = min(slice_err_vec, max_err);
 
-                histogram(ax2, clamped_sems, sem_edges, 'Normalization', 'probability', ...
+                histogram(ax2, clamped_err, err_edges, 'Normalization', 'probability', ...
                     'FaceColor', c, 'EdgeColor', ec, 'FaceAlpha', 0.50, ...
-                    'DisplayName', sprintf('%s (Avg SE: %.2f Hz)', ds.name, mean(ds.slice_sems)));
+                    'DisplayName', sprintf('%s (Avg %s: %.2f Hz)', ds.name, err_sym_str, mean(slice_err_vec)));
 
-                mean_se = mean(ds.slice_sems);
-                xline(ax2, mean_se, '--', 'Color', ec, 'LineWidth', 1.8, ...
-                    'DisplayName', sprintf('%s Avg SE: %.2f Hz', ds.name, mean_se));
+                mean_err = mean(slice_err_vec);
+                xline(ax2, mean_err, '--', 'Color', ec, 'LineWidth', 1.8, ...
+                    'DisplayName', sprintf('%s Avg %s: %.2f Hz', ds.name, err_sym_str, mean_err));
             end
 
             ylim(ax2, [0, 1.05]);
 
-            Visualizer.applyAxesStyle(ax2, sprintf('Std Error Distribution Across %ds Slices (Normalized)', round(bin_dur_sec)), ...
-                'Standard Error SE (Hz)', 'Normalized Probability');
+            Visualizer.applyAxesStyle(ax2, sprintf('%s Distribution Across %ds Slices (Normalized)', err_name_str, round(bin_dur_sec)), ...
+                sprintf('%s %s (Hz)', err_name_str, err_sym_str), 'Normalized Probability');
             lgd2 = legend(ax2, 'Location', 'best');
             Visualizer.styleLegend(lgd2);
 
-            % --- Subplot 3: Mean Bandwidth with Error Bars (±SE) vs Time ---
+            % --- Subplot 3: Mean Bandwidth with Error Bars (±SD or ±SE) vs Time ---
             ax3 = subplot(2, 2, 3);
             hold(ax3, 'on');
 
@@ -673,18 +705,39 @@ classdef Visualizer
                 ds = binned_datasets{k};
                 [c, ~] = Visualizer.getDatasetColor(ds.name, k);
                 t_min = ds.slice_times / 60;
+                if use_std
+                    slice_err_vec = ds.slice_stds;
+                else
+                    slice_err_vec = ds.slice_sems;
+                end
 
-                errorbar(ax3, t_min, ds.slice_means, ds.slice_sems, '.-', ...
-                    'Color', c, 'MarkerSize', 10, 'LineWidth', 1.2, 'CapSize', 4, ...
-                    'DisplayName', sprintf('%s (Mean: %.1f Hz)', ds.name, mean(ds.slice_means)));
+                t_row = t_min(:)';
+                y_row = ds.slice_means(:)';
+                err_row = slice_err_vec(:)';
+                valid_mask = ~isnan(t_row) & ~isnan(y_row) & ~isnan(err_row);
+                t_valid = t_row(valid_mask);
+                y_valid = y_row(valid_mask);
+                err_valid = err_row(valid_mask);
+
+                if ~isempty(t_valid)
+                    upper_bound = y_valid + err_valid;
+                    lower_bound = max(0, y_valid - err_valid);
+
+                    patch(ax3, [t_valid, fliplr(t_valid)], [upper_bound, fliplr(lower_bound)], ...
+                        c, 'FaceAlpha', 0.20, 'EdgeColor', 'none', 'HandleVisibility', 'off');
+
+                    plot(ax3, t_valid, y_valid, '.-', ...
+                        'Color', [c, 0.90], 'MarkerSize', 8, 'LineWidth', 1.2, ...
+                        'DisplayName', sprintf('%s (Mean: %.1f Hz)', ds.name, mean(y_valid)));
+                end
             end
 
-            Visualizer.applyAxesStyle(ax3, sprintf('%ds Slice Mean Bandwidth with Error Bars (±SE)', round(bin_dur_sec)), ...
-                'Elapsed Time (minutes)', 'Mean Bandwidth ± SE (Hz)');
+            Visualizer.applyAxesStyle(ax3, sprintf('%ds Slice Mean Bandwidth with Shaded ±%s', round(bin_dur_sec), err_sym_str), ...
+                'Elapsed Time (minutes)', sprintf('Mean Bandwidth ± %s (Hz)', err_sym_str));
             lgd3 = legend(ax3, 'Location', 'best');
             Visualizer.styleLegend(lgd3);
 
-            % --- Subplot 4: Standard Error for Each Slice vs Time ---
+            % --- Subplot 4: Standard Deviation / Error for Each Slice vs Time ---
             ax4 = subplot(2, 2, 4);
             hold(ax4, 'on');
 
@@ -692,16 +745,21 @@ classdef Visualizer
                 ds = binned_datasets{k};
                 [c, ec] = Visualizer.getDatasetColor(ds.name, k);
                 t_min = ds.slice_times / 60;
+                if use_std
+                    slice_err_vec = ds.slice_stds;
+                else
+                    slice_err_vec = ds.slice_sems;
+                end
 
-                plot(ax4, t_min, ds.slice_sems, '.-', 'Color', c, 'LineWidth', 1.2, ...
-                    'MarkerSize', 10, 'DisplayName', sprintf('%s (Avg SE: %.2f Hz)', ds.name, mean(ds.slice_sems)));
+                plot(ax4, t_min, slice_err_vec, '.-', 'Color', c, 'LineWidth', 1.2, ...
+                    'MarkerSize', 10, 'DisplayName', sprintf('%s (Avg %s: %.2f Hz)', ds.name, err_sym_str, mean(slice_err_vec)));
 
-                yline(ax4, mean(ds.slice_sems), ':', 'Color', ec, 'LineWidth', 1.5, ...
+                yline(ax4, mean(slice_err_vec), ':', 'Color', ec, 'LineWidth', 1.5, ...
                     'HandleVisibility', 'off');
             end
 
-            Visualizer.applyAxesStyle(ax4, sprintf('Standard Error for Each %ds Slice', round(bin_dur_sec)), ...
-                'Elapsed Time (minutes)', 'Std Error SE (Hz)');
+            Visualizer.applyAxesStyle(ax4, sprintf('%s for Each %ds Slice', err_name_str, round(bin_dur_sec)), ...
+                'Elapsed Time (minutes)', sprintf('%s %s (Hz)', err_name_str, err_sym_str));
             lgd4 = legend(ax4, 'Location', 'best');
             Visualizer.styleLegend(lgd4);
 
