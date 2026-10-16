@@ -14,7 +14,7 @@
 \maketitle
 
 \section{Theoretical Framework}
-This section establishes the physical foundations of acoustic signal distortion. 
+This section establishes the physical foundations of acoustic signal distortion.
 A \textbf{Doubly Spread Channel} \cite{stojanovic1996recent, preisig2007acoustic} is driven by two coupled mechanisms: \textbf{Source Kinematics (Heave)} and \textbf{Dynamic Boundary Interaction (Micro-Multipath)}.
 
 \section{Source on the surface}
@@ -26,33 +26,33 @@ A surface vessel represents the worst-case scenario for acoustic smearing due to
     % Define variables/coordinates
     \def\Range{6}
     \def\Hrec{-2.5}
-    
+
     % Draw axes
     \draw[->, thick] (0, 0.5) -- (0, \Hrec - 0.5) node[left] {$z$ (Depth)};
     \draw[->, thick] (-0.5, 0) -- (\Range + 1, 0) node[below] {$x$ (Range, $R$)};
-    
+
     % Draw rough ocean surface
-    \draw[blue, thick, decoration={snake, amplitude=3mm, segment length=15mm}, decorate] 
+    \draw[blue, thick, decoration={snake, amplitude=3mm, segment length=15mm}, decorate]
         (-0.5, 0) -- (\Range + 0.5, 0) node[right, text=black] {$h(t, x)$};
-        
+
     % Source Vessel
     \filldraw[red] (0,0) circle (2pt) node[above left] {Source, $f_0$};
     \draw[->, red, thick] (0, 0.2) -- (0, 0.7) node[above] {$z(t) = A_w \sin(2\pi f_w t)$};
-    
+
     % Receiver
     \filldraw[black] (\Range, \Hrec) circle (2pt) node[right] {Receiver};
-    
+
     % Direct path and angle
     \draw[dashed, thick] (0,0) -- (\Range, \Hrec) node[midway, sloped, below] {Direct Path ($R_{slant}$)};
     \draw (1.5, 0) arc (0:{-atan(2.5/6)}:1.5) node[midway, right] {$\theta_g$};
-    
+
     % Surface interaction path (Shadowing example)
     \draw[blue, dashed] (0,0) -- (2.2, -0.3) -- (\Range, \Hrec);
     \node[blue, align=center] at (2.2, -0.6) {Grazing Reflection};
-    
+
     % Annotate Depth and Range
     \draw[<->] (\Range, 0) -- (\Range, \Hrec) node[midway, right] {$H_{rec}$};
-    
+
 \end{tikzpicture}
 
 \subsection{Physical \& Mathematical Breakdown}
@@ -126,34 +126,34 @@ This isolates the source to demonstrate how physical decoupling stabilizes the s
     \def\Range{6}
     \def\Hrec{-2.5}
     \def\Hsrc{-1.0}
-    
+
     % Draw axes
     \draw[->, thick] (0, 0.5) -- (0, \Hrec - 0.5) node[left] {$z$ (Depth)};
     \draw[->, thick] (-0.5, 0) -- (\Range + 1, 0) node[below] {$x$ (Range, $R$)};
-    
+
     % Draw rough ocean surface
-    \draw[blue, thick, decoration={snake, amplitude=3mm, segment length=15mm}, decorate] 
+    \draw[blue, thick, decoration={snake, amplitude=3mm, segment length=15mm}, decorate]
         (-0.5, 0) -- (\Range + 0.5, 0) node[right, text=black] {$h(t, x)$};
-        
+
     % Underwater Source Vessel
     \filldraw[red] (0,\Hsrc) circle (2pt) node[below left] {Source, $f_0$};
     \draw[<->] (-0.2, 0) -- (-0.2, \Hsrc) node[midway, left] {$H_{src}$};
-    
+
     % Receiver
     \filldraw[black] (\Range, \Hrec) circle (2pt) node[right] {Receiver};
-    
+
     % Direct path
     \draw[solid, thick] (0,\Hsrc) -- (\Range, \Hrec) node[midway, below, sloped] {Direct Path ($R_{dir}$)};
-    
+
     % Surface interaction path (Resolved Multipath)
     \draw[blue, dashed, thick] (0,\Hsrc) -- (1.7, 0) -- (\Range, \Hrec) node[midway, above, sloped, text=blue] {Surface Path ($R_{surf}$)};
-    
+
     % Grazing Angle at surface
     \draw (1.2, 0) arc (180:{180+atan(\Hsrc/1.7)}:0.5) node[midway, left] {$\theta_{surf}$};
-    
+
     % Annotate Depth and Range
     \draw[<->] (\Range, 0) -- (\Range, \Hrec) node[midway, right] {$H_{rec}$};
-    
+
 \end{tikzpicture}
 
 \subsection{Physical \& Mathematical Breakdown}
@@ -215,6 +215,8 @@ This outlines the signal processing architecture designed to mitigate smearing.
 
 % Split Output Nodes
 \node (stability) [bluebox, below left=1.2cm and -1.5cm of matrix] {3a. CHECK STABILITY};
+\node (tib) [bluebox, below left=0.2cm and -1.5cm of stability] {3a-1. Time-In-Band Ratio};
+\node (jains) [bluebox, below right=0.2cm and -1.5cm of stability] {3a-2. Jain's Fairness Index};
 \node (combine) [bluebox, below right=1.2cm and -1.5cm of matrix] {3b. COMBINE\\BANDWIDTH(S)};
 
 % Final Nodes

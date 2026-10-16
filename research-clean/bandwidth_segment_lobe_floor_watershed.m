@@ -59,6 +59,7 @@ cfg.slice_dur_sec  = 0.500;   % Time-domain FFT slice duration for Hilbert analy
 cfg.prom_split_db  = 5.0;     % Inter-peak prominence drop for independent lobes (dB)
 cfg.fairness_window = 5;      % Window size for rolling Jain's fairness index
 cfg.tib_tolerance_hz = 10;    % Tolerance for Time-in-Band stability metric (Hz)
+cfg.entropy_max_bins = 20;    % Maximum histogram bins for adaptive Shannon entropy
 cfg.bw_smooth_method = 'welch';    % Smoothing method for segmented signal before BW detection
 cfg.bw_smooth_window = 5;          % Window size for smoothing the segmented signal
 

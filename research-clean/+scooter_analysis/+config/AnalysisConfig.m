@@ -46,6 +46,7 @@ classdef AnalysisConfig
         bw_smooth_method  (1,:) char = 'welch'
         bw_smooth_window  (1,1) double = 5
         bw_tib_tolerance_hz (1,1) double = 10
+        bw_entropy_max_bins (1,1) double = 20   % Maximum histogram bins for adaptive Shannon entropy
 
         % High-Pass Filter
         hp_cutoff        (1,1) double = 0        % High-pass filter cutoff (0 = auto, uses f_low)
@@ -149,10 +150,10 @@ classdef AnalysisConfig
         function cfg = auv()
             % Preset for AUV
             cfg = scooter_analysis.config.AnalysisConfig();
-            cfg.f_low = 100;
+            cfg.f_low = 300;
             cfg.f_high = 1400;
-            cfg.segment_duration = 30;
-            cfg.step_duration = 30;
+            cfg.segment_duration = 60;
+            cfg.step_duration = 60;
         end
     end
 end
