@@ -1,10 +1,10 @@
 <mxfile host="Electron">
   <diagram name="Merged-PIML-CPO-Pipeline" id="ktmbSf5-caijOqZjDwJ6">
-    <mxGraphModel dx="817" dy="486" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+    <mxGraphModel dx="972" dy="591" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="audio-input-title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=15;fontStyle=1;fontColor=#3b7a9c;" value="OFFLINE PRE-PROCESSING (DSP PIPELINE)" vertex="1">
+        <mxCell id="audio-input-title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=15;fontStyle=1;fontColor=#3b7a9c;" value="AUDIO PROCESSING" vertex="1">
           <mxGeometry height="25" width="300" x="300" y="15" as="geometry" />
         </mxCell>
         <mxCell id="audio-input-container" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f9fb;strokeColor=#3b7a9c;strokeWidth=1.5;arcSize=4;" value="" vertex="1">
@@ -37,7 +37,7 @@
         <mxCell id="node-2b" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efe6f2;strokeColor=#5c2d5c;fontSize=13;" value="2b. DETERMINE BANDWIDTH&#xa;(based on buffering)" vertex="1">
           <mxGeometry height="55" width="280" x="310" y="375" as="geometry" />
         </mxCell>
-        <mxCell id="node-2c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efe6f2;strokeColor=#5c2d5c;fontSize=13;" value="2c. CALCULATE CHANNEL&#xa;PARAMETERS H_{i,j} (j = 1..J)" vertex="1">
+        <mxCell id="node-2c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#efe6f2;strokeColor=#5c2d5c;fontSize=13;" value="2c. CALCULATE BANDWIDTH&lt;br&gt;PARAMETERS BW_{i,j} (j = 1..J)" vertex="1">
           <mxGeometry height="55" width="280" x="310" y="460" as="geometry" />
         </mxCell>
         <mxCell id="edge-buffer-to-loop" edge="1" parent="1" source="audio-input-container" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;strokeColor=#000000;" target="loop-container">
@@ -57,7 +57,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="joVNavcFF144xromVXao-17" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;gradientColor=#d5739d;strokeColor=#996185;fontStyle=1;fontSize=13;strokeWidth=1.5;" value="CHANNEL / BANDWIDTH PARAMETER MATRIX H_{i,j}&#xa;Data for I frequencies, J buffers" vertex="1">
+        <mxCell id="joVNavcFF144xromVXao-17" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;gradientColor=#d5739d;strokeColor=#996185;fontStyle=1;fontSize=13;strokeWidth=1.5;" value="BANDWIDTH PARAMETER MATRIX BW_{i,j}&lt;br&gt;Data for I frequencies, J buffers" vertex="1">
           <mxGeometry height="65" width="330" x="285" y="575" as="geometry" />
         </mxCell>
         <mxCell id="edge-loop-to-matrix" edge="1" parent="1" source="loop-container" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=1.5;strokeColor=#000000;" target="joVNavcFF144xromVXao-17">
@@ -99,7 +99,7 @@
         <mxCell id="joVNavcFF144xromVXao-31" parent="joVNavcFF144xromVXao-16" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;fillColor=#bac8d3;strokeColor=#23445d;" value="std" vertex="1">
           <mxGeometry height="40" width="40" x="230" y="95" as="geometry" />
         </mxCell>
-        <mxCell id="joVNavcFF144xromVXao-15" connectable="0" parent="1" style="group;fillColor=#ffcd28;gradientColor=#ffa500;strokeColor=#d79b00;" value="" vertex="1">
+        <mxCell id="joVNavcFF144xromVXao-15" connectable="0" parent="1" style="group;fillColor=none;gradientColor=#ffa500;strokeColor=none;" value="" vertex="1">
           <mxGeometry height="165" width="230" x="530" y="700" as="geometry" />
         </mxCell>
         <mxCell id="joVNavcFF144xromVXao-10" parent="joVNavcFF144xromVXao-15" style="rounded=1;whiteSpace=wrap;html=1;align=center;labelPosition=center;verticalLabelPosition=top;verticalAlign=bottom;fontSize=15;fontStyle=1;fillColor=#e6e6fa;strokeColor=#3b3b98;strokeWidth=1.5;" value="3b. COMBINE BANDWIDTH(S)" vertex="1">
@@ -123,11 +123,17 @@
         <mxCell id="joVNavcFF144xromVXao-19" edge="1" parent="1" source="joVNavcFF144xromVXao-17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=1.5;" target="joVNavcFF144xromVXao-10">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="edge-stab-rl" edge="1" parent="1" source="joVNavcFF144xromVXao-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.35;entryY=0;entryDx=0;entryDy=0;strokeWidth=2;fontStyle=1;fontSize=12;" target="joVNavcFF144xromVXao-32" value="Stability Indicator P_i">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="edge-stab-rl" edge="1" parent="1" source="joVNavcFF144xromVXao-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;fontStyle=1;fontSize=12;" target="joVNavcFF144xromVXao-32" value="Stability Indicator P_i">
+          <mxGeometry relative="1" x="-0.4298" as="geometry" />
         </mxCell>
-        <mxCell id="edge-comb-rl" edge="1" parent="1" source="joVNavcFF144xromVXao-10" style="edgeStyle=orthogonalLoop=1;jettySize=auto;html=1;entryX=0.65;entryY=0;entryDx=0;entryDy=0;strokeWidth=2;" target="joVNavcFF144xromVXao-32" value="Combined BW Statistics">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="edge-comb-rl" edge="1" parent="1" source="joVNavcFF144xromVXao-10" style="edgeStyle=orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;rounded=0;curved=0;" target="joVNavcFF144xromVXao-32" value="Combined BW Statistics">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="640" y="900" />
+              <mxPoint x="430" y="900" />
+            </Array>
+            <mxPoint x="460" y="890" as="targetPoint" />
+          </mxGeometry>
         </mxCell>
         <mxCell id="joVNavcFF144xromVXao-32" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf6fb;strokeColor=#5c2d5c;strokeWidth=2.5;verticalAlign=top;fontSize=15;fontStyle=1;spacingTop=6;" value="4. DECISION MAKING — PIML-CPO / PPO Framework" vertex="1">
           <mxGeometry height="320" width="680" x="90" y="930" as="geometry" />
