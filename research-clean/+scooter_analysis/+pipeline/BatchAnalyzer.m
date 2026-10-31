@@ -230,6 +230,158 @@ classdef BatchAnalyzer < handle
             res.slice_times = slice_times;
             res.all_main_bws = bws;
         end
+
+        % --- Phase Lock (Digital PLL) & Instantaneous Frequency Verification Accessors ---
+
+        function vals = getAllSlicePLVs(obj)
+            cells = {};
+            for i = 1:length(obj.FileResults)
+                cells{end+1} = obj.FileResults(i).getAllSlicePLVs();
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function vals = getAllSliceMeanPhases(obj)
+            cells = {};
+            for i = 1:length(obj.FileResults)
+                cells{end+1} = obj.FileResults(i).getAllSliceMeanPhases();
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function vals = getAllSlicePhaseStds(obj)
+            cells = {};
+            for i = 1:length(obj.FileResults)
+                cells{end+1} = obj.FileResults(i).getAllSlicePhaseStds();
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function vals = getAllSliceInstFreqs(obj)
+            cells = {};
+            for i = 1:length(obj.FileResults)
+                cells{end+1} = obj.FileResults(i).getAllSliceInstFreqs();
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function vals = getAllSliceInstFreqStds(obj)
+            cells = {};
+            for i = 1:length(obj.FileResults)
+                cells{end+1} = obj.FileResults(i).getAllSliceInstFreqStds();
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function vals = getAllSliceFreqVerifErrs(obj)
+            cells = {};
+            for i = 1:length(obj.FileResults)
+                cells{end+1} = obj.FileResults(i).getAllSliceFreqVerifErrs();
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function vals = getAllPhaseSamples(obj)
+            cells = {};
+            for i = 1:length(obj.FileResults)
+                cells{end+1} = obj.FileResults(i).getAllPhaseSamples();
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function res = getPhaseLockResult(obj, max_window_sec)
+            % Build a result struct representing this entire dataset's PLL Phase Lock
+            % and Instantaneous Frequency Verification metrics.
+            if nargin < 2 || isempty(max_window_sec)
+                max_window_sec = 60;
+            end
+
+            plvs          = obj.getAllSlicePLVs();
+            mean_phases   = obj.getAllSliceMeanPhases();
+            phase_stds    = obj.getAllSlicePhaseStds();
+            inst_freqs    = obj.getAllSliceInstFreqs();
+            freq_stds     = obj.getAllSliceInstFreqStds();
+            verif_errs    = obj.getAllSliceFreqVerifErrs();
+            phase_samples = obj.getAllPhaseSamples();
+
+            slice_dur   = obj.Config.bw_slice_dur_sec;
+            freq_tol_hz = obj.Config.pll_freq_lock_tol_hz;
+            max_bins    = obj.Config.bw_entropy_max_bins;
+            total_time  = min(length(plvs) * slice_dur, max_window_sec);
+
+            if total_time >= 2 && ~isempty(plvs)
+                [win_sizes, all_plv_win, all_pent_win, all_flock_win] = ...
+                    BandwidthTracker.compute_phase_stability_vs_window( ...
+                        plvs, mean_phases, freq_stds, slice_dur, total_time, freq_tol_hz, max_bins);
+            else
+                win_sizes = [];
+                all_plv_win = [];
+                all_pent_win = [];
+                all_flock_win = [];
+            end
+
+            res = struct();
+            res.meta.name            = obj.DatasetName;
+            res.freq_tol_hz          = freq_tol_hz;
+            res.all_plvs             = plvs;
+            res.all_mean_phases      = mean_phases;
+            res.all_phase_stds       = phase_stds;
+            res.all_inst_freqs       = inst_freqs;
+            res.all_inst_freq_stds   = freq_stds;
+            res.all_freq_verif_errs  = verif_errs;
+            res.phase_samples        = phase_samples;
+            res.fairness_window_sec  = win_sizes;
+            res.all_plv_vs_win       = all_plv_win;
+            res.all_phase_ent_vs_win = all_pent_win;
+            res.all_freq_lock_vs_win = all_flock_win;
+        end
+
+        function res = getRollingPhaseLockResult(obj, window_sec)
+            if nargin < 2 || isempty(window_sec)
+                window_sec = 60;
+            end
+
+            plvs        = obj.getAllSlicePLVs();
+            mean_phases = obj.getAllSliceMeanPhases();
+            freq_stds   = obj.getAllSliceInstFreqStds();
+
+            slice_dur   = obj.Config.bw_slice_dur_sec;
+            freq_tol_hz = obj.Config.pll_freq_lock_tol_hz;
+            max_bins    = obj.Config.bw_entropy_max_bins;
+
+            [t_centers, plv_series, phase_ent_series, freq_lock_series, mean_freq_std, std_freq_std] = ...
+                BandwidthTracker.compute_rolling_phase_stability( ...
+                    plvs, mean_phases, freq_stds, slice_dur, window_sec, freq_tol_hz, [], max_bins);
+
+            res = struct();
+            res.meta.name        = obj.DatasetName;
+            res.t_centers        = t_centers;
+            res.plv_series       = plv_series;
+            res.phase_ent_series = phase_ent_series;
+            res.freq_lock_series = freq_lock_series;
+            res.mean_freq_std    = mean_freq_std;
+            res.std_freq_std     = std_freq_std;
+            res.window_sec       = window_sec;
+            res.freq_tol_hz      = freq_tol_hz;
+        end
+
+        function res = getBinnedPhaseLockResult(obj, bin_dur_sec)
+            if nargin < 2 || isempty(bin_dur_sec); bin_dur_sec = 60.0; end
+
+            plvs       = obj.getAllSlicePLVs();
+            freq_stds  = obj.getAllSliceInstFreqStds();
+            phase_stds = obj.getAllSlicePhaseStds();
+            verif_errs = obj.getAllSliceFreqVerifErrs();
+            slice_dur  = obj.Config.bw_slice_dur_sec;
+
+            res = BandwidthTracker.compute_binned_phase_lock( ...
+                plvs, freq_stds, phase_stds, verif_errs, slice_dur, bin_dur_sec);
+            res.meta               = struct('name', obj.DatasetName);
+            res.all_plvs           = plvs;
+            res.all_inst_freq_stds = freq_stds;
+            res.all_phase_stds     = phase_stds;
+            res.all_freq_verif_errs = verif_errs;
+        end
         
         function results = getFileFairnessResults(obj, max_window_sec)
             % Build cell array of result structs, one per file in this analyzer.
@@ -259,6 +411,7 @@ classdef BatchAnalyzer < handle
                 res.ocean_ambient_db = NaN;
                 res.slice_bw = struct('found', false, 'all_main_bws', [], ...
                     'fairness_window_sec', [], 'all_tib', [], 'all_entropy', [], 'all_fairness', []);
+                res.pll_result = struct('found', false, 'all_plvs', [], 'phase_samples', []);
                 return;
             end
             
@@ -288,6 +441,7 @@ classdef BatchAnalyzer < handle
                 res.ocean_ambient_db = NaN;
                 res.slice_bw = struct('found', false, 'all_main_bws', [], ...
                     'fairness_window_sec', [], 'all_tib', [], 'all_entropy', [], 'all_fairness', []);
+                res.pll_result = struct('found', false, 'all_plvs', [], 'phase_samples', []);
                 return;
             end
             
@@ -308,6 +462,7 @@ classdef BatchAnalyzer < handle
             res.slice_bw.all_tib = fair_res.slice_bw.all_tib;
             res.slice_bw.all_entropy = fair_res.slice_bw.all_entropy;
             res.slice_bw.all_fairness = fair_res.slice_bw.all_fairness;
+            res.pll_result = obj.getPhaseLockResult();
         end
         
         function results = getFileVisualizerResults(obj)

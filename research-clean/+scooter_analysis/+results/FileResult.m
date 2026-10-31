@@ -19,6 +19,12 @@ classdef FileResult
         bw_vals     (:,1) double = []          % [num_segments x 1] (median BW)
         mean_bws    (:,1) double = []          % [num_segments x 1] (mean BW)
         sem_bws     (:,1) double = []          % [num_segments x 1] (std error of BW)
+        pll_plvs    (:,1) double = []          % [num_segments x 1] (mean Phase Locking Value R)
+        pll_phase_stds (:,1) double = []       % [num_segments x 1] (mean slice phase SD in rad)
+        pll_freq_means (:,1) double = []       % [num_segments x 1] (mean PLL tracked freq in Hz)
+        pll_freq_stds  (:,1) double = []       % [num_segments x 1] (mean PLL inst. freq spread SD in Hz)
+        pll_freq_verif_errs (:,1) double = []  % [num_segments x 1] (mean |f_PLL - f_FFT| error in Hz)
+        pll_lock_ratios (:,1) double = []      % [num_segments x 1] (fraction of slices locked)
         time_centers_abs (:,1) double = []     % [num_segments x 1] datenum values
         
         % PSD matrix for LTSA
@@ -36,6 +42,12 @@ classdef FileResult
             obj.bw_vals   = [obj.segments.med_bw]';
             obj.mean_bws  = [obj.segments.mean_bw]';
             obj.sem_bws   = [obj.segments.sem_bw]';
+            obj.pll_plvs            = [obj.segments.pll_mean_plv]';
+            obj.pll_phase_stds      = [obj.segments.pll_phase_std]';
+            obj.pll_freq_means      = [obj.segments.pll_freq_mean]';
+            obj.pll_freq_stds       = [obj.segments.pll_freq_std]';
+            obj.pll_freq_verif_errs = [obj.segments.pll_freq_verif_err]';
+            obj.pll_lock_ratios     = [obj.segments.pll_lock_ratio]';
             
             time_centers_sec = ([obj.segments.start_time]' + [obj.segments.end_time]') / 2;
             obj.time_centers_abs = datenum(obj.base_time + seconds(time_centers_sec));
@@ -166,6 +178,7 @@ classdef FileResult
                 res.ocean_ambient_db = NaN;
                 res.slice_bw = struct('found', false, 'all_main_bws', [], ...
                     'fairness_window_sec', [], 'all_tib', [], 'all_entropy', [], 'all_fairness', []);
+                res.pll_result = struct('found', false, 'all_plvs', [], 'phase_samples', []);
                 return;
             end
             
@@ -196,6 +209,170 @@ classdef FileResult
             res.slice_bw.all_tib = fair_res.slice_bw.all_tib;
             res.slice_bw.all_entropy = fair_res.slice_bw.all_entropy;
             res.slice_bw.all_fairness = fair_res.slice_bw.all_fairness;
+            res.pll_result = obj.getPhaseLockResult(custom_name);
+        end
+
+        % --- Phase Lock (Digital PLL) & Instantaneous Frequency Verification Accessors ---
+
+        function vals = getAllSlicePLVs(obj)
+            cells = {};
+            for s = 1:length(obj.segments)
+                if isfield(obj.segments(s).pll_result, 'all_plvs') && ~isempty(obj.segments(s).pll_result.all_plvs)
+                    cells{end+1} = obj.segments(s).pll_result.all_plvs(:);
+                end
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function vals = getAllSliceMeanPhases(obj)
+            cells = {};
+            for s = 1:length(obj.segments)
+                if isfield(obj.segments(s).pll_result, 'all_mean_phases') && ~isempty(obj.segments(s).pll_result.all_mean_phases)
+                    cells{end+1} = obj.segments(s).pll_result.all_mean_phases(:);
+                end
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function vals = getAllSlicePhaseStds(obj)
+            cells = {};
+            for s = 1:length(obj.segments)
+                if isfield(obj.segments(s).pll_result, 'all_phase_stds') && ~isempty(obj.segments(s).pll_result.all_phase_stds)
+                    cells{end+1} = obj.segments(s).pll_result.all_phase_stds(:);
+                end
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function vals = getAllSliceInstFreqs(obj)
+            cells = {};
+            for s = 1:length(obj.segments)
+                if isfield(obj.segments(s).pll_result, 'all_inst_freqs') && ~isempty(obj.segments(s).pll_result.all_inst_freqs)
+                    cells{end+1} = obj.segments(s).pll_result.all_inst_freqs(:);
+                end
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function vals = getAllSliceInstFreqStds(obj)
+            cells = {};
+            for s = 1:length(obj.segments)
+                if isfield(obj.segments(s).pll_result, 'all_inst_freq_stds') && ~isempty(obj.segments(s).pll_result.all_inst_freq_stds)
+                    cells{end+1} = obj.segments(s).pll_result.all_inst_freq_stds(:);
+                end
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function vals = getAllSliceFreqVerifErrs(obj)
+            cells = {};
+            for s = 1:length(obj.segments)
+                if isfield(obj.segments(s).pll_result, 'all_freq_verif_errs') && ~isempty(obj.segments(s).pll_result.all_freq_verif_errs)
+                    cells{end+1} = obj.segments(s).pll_result.all_freq_verif_errs(:);
+                end
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function vals = getAllPhaseSamples(obj)
+            cells = {};
+            for s = 1:length(obj.segments)
+                if isfield(obj.segments(s).pll_result, 'phase_samples') && ~isempty(obj.segments(s).pll_result.phase_samples)
+                    cells{end+1} = obj.segments(s).pll_result.phase_samples(:);
+                end
+            end
+            vals = vertcat(cells{:});
+        end
+
+        function res = getPhaseLockResult(obj, custom_name, max_window_sec)
+            if nargin < 2 || isempty(custom_name)
+                custom_name = obj.filename;
+            end
+            if nargin < 3 || isempty(max_window_sec)
+                max_window_sec = 60;
+            end
+
+            plvs = obj.getAllSlicePLVs();
+            mean_phases = obj.getAllSliceMeanPhases();
+            phase_stds = obj.getAllSlicePhaseStds();
+            inst_freqs = obj.getAllSliceInstFreqs();
+            freq_stds = obj.getAllSliceInstFreqStds();
+            verif_errs = obj.getAllSliceFreqVerifErrs();
+            phase_samples = obj.getAllPhaseSamples();
+
+            slice_dur = 0.500;
+            freq_tol_hz = 5.0;
+            total_time = min(length(plvs) * slice_dur, max_window_sec);
+            if total_time >= 2 && ~isempty(plvs)
+                [win_sizes, all_plv_win, all_pent_win, all_flock_win] = ...
+                    BandwidthTracker.compute_phase_stability_vs_window( ...
+                        plvs, mean_phases, freq_stds, slice_dur, total_time, freq_tol_hz, 20);
+            else
+                win_sizes = [];
+                all_plv_win = [];
+                all_pent_win = [];
+                all_flock_win = [];
+            end
+
+            res = struct();
+            res.meta.name = custom_name;
+            res.freq_tol_hz = freq_tol_hz;
+            res.all_plvs = plvs;
+            res.all_mean_phases = mean_phases;
+            res.all_phase_stds = phase_stds;
+            res.all_inst_freqs = inst_freqs;
+            res.all_inst_freq_stds = freq_stds;
+            res.all_freq_verif_errs = verif_errs;
+            res.phase_samples = phase_samples;
+            res.fairness_window_sec = win_sizes;
+            res.all_plv_vs_win = all_plv_win;
+            res.all_phase_ent_vs_win = all_pent_win;
+            res.all_freq_lock_vs_win = all_flock_win;
+        end
+
+        function res = getRollingPhaseLockResult(obj, window_sec, custom_name)
+            if nargin < 2 || isempty(window_sec); window_sec = 60.0; end
+            if nargin < 3 || isempty(custom_name); custom_name = obj.filename; end
+
+            plvs = obj.getAllSlicePLVs();
+            mean_phases = obj.getAllSliceMeanPhases();
+            freq_stds = obj.getAllSliceInstFreqStds();
+            slice_dur = 0.500;
+            freq_tol_hz = 5.0;
+
+            [t_centers, plv_series, phase_ent_series, freq_lock_series, mean_freq_std, std_freq_std] = ...
+                BandwidthTracker.compute_rolling_phase_stability( ...
+                    plvs, mean_phases, freq_stds, slice_dur, window_sec, freq_tol_hz);
+
+            res = struct();
+            res.meta.name = custom_name;
+            res.t_centers = t_centers;
+            res.plv_series = plv_series;
+            res.phase_ent_series = phase_ent_series;
+            res.freq_lock_series = freq_lock_series;
+            res.mean_freq_std = mean_freq_std;
+            res.std_freq_std = std_freq_std;
+            res.window_sec = window_sec;
+            res.freq_tol_hz = freq_tol_hz;
+        end
+
+        function res = getBinnedPhaseLockResult(obj, bin_dur_sec, custom_name)
+            if nargin < 2 || isempty(bin_dur_sec); bin_dur_sec = 60.0; end
+            if nargin < 3 || isempty(custom_name); custom_name = obj.filename; end
+
+            plvs = obj.getAllSlicePLVs();
+            freq_stds = obj.getAllSliceInstFreqStds();
+            phase_stds = obj.getAllSlicePhaseStds();
+            verif_errs = obj.getAllSliceFreqVerifErrs();
+            slice_dur = 0.500;
+
+            res = BandwidthTracker.compute_binned_phase_lock( ...
+                plvs, freq_stds, phase_stds, verif_errs, slice_dur, bin_dur_sec);
+            res.meta = struct('name', custom_name);
+            res.all_plvs = plvs;
+            res.all_inst_freq_stds = freq_stds;
+            res.all_phase_stds = phase_stds;
+            res.all_freq_verif_errs = verif_errs;
         end
     end
 end

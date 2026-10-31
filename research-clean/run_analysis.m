@@ -17,9 +17,11 @@ clear; close all; clc;
 import scooter_analysis.config.AnalysisConfig
 import scooter_analysis.pipeline.BatchAnalyzer
 import scooter_analysis.reporting.PlotGenerator
+import scooter_analysis.reporting.ReportGenerator
 
 % base_dir = 'C:\Users\Roy\Recordings';
 base_dir = 'D:\RoyStudies\Recordings';
+out_base = fullfile(fileparts(mfilename('fullpath')), 'scooter_analysis', 'output');
 
 %% =====================================================================
 %  WORKFLOW 1: Haifa Bay - Batch Per-File Analysis
@@ -59,6 +61,16 @@ base_dir = 'D:\RoyStudies\Recordings';
 % % 7. Macro-Lobe Watershed Segmentation (Figure 1: Macro-Lobes & Noise Floor)
 % PlotGenerator.macroLobeWatershed({ba}, ...
 %     fullfile(out_base, 'haifa_bay_macro_lobes'));
+
+% % 8. Phase Lock (Digital PLL) & Instantaneous Frequency Verification
+% PlotGenerator.phaseLockComparison({ba}, ...
+%     fullfile(out_base, 'haifa_bay_phase_lock'));
+% PlotGenerator.binnedPhaseLockDistribution({ba}, ...
+%     fullfile(out_base, 'haifa_bay_binned_phase_lock_60s.png'));
+% PlotGenerator.binnedInstFreqVerification({ba}, ...
+%     fullfile(out_base, 'haifa_bay_binned_inst_freq_spread_60s.png'));
+% ReportGenerator.writePhaseLockComparisonReport({ba}, ...
+%     fullfile(out_base, 'haifa_bay_phase_lock_statistics.txt'), 60);
 
 
 %% =====================================================================
@@ -159,6 +171,12 @@ base_dir = 'D:\RoyStudies\Recordings';
 % PlotGenerator.binnedBandwidthDistribution({ba_auv}, ...
 %     fullfile(out_base, 'comparison_binned_bandwidth_60s_auv_solo.png'));
 
+% % 8. Phase Lock (Digital PLL) & Instantaneous Frequency Verification
+% PlotGenerator.binnedPhaseLockDistribution({ba_auv}, ...
+%     fullfile(out_base, 'comparison_binned_phase_lock_60s_auv_solo.png'));
+% PlotGenerator.binnedInstFreqVerification({ba_auv}, ...
+%     fullfile(out_base, 'comparison_binned_inst_freq_spread_60s_auv_solo.png'));
+
 
 %% =====================================================================
 %  WORKFLOW 7: Dominant Frequency Tracking
@@ -177,10 +195,15 @@ base_dir = 'D:\RoyStudies\Recordings';
 % ======================================================================
 cfg_h = AnalysisConfig.haifaBay();
 
-ba_h = BatchAnalyzer( ...
-    fullfile(base_dir, '20250805_Haifa_bay_LME/extracted-2'), cfg_h, ...
-    'Name', 'HaifaBay', 'Mode', 'concatenated');
-ba_h.run();
+if exist('ba', 'var') && isa(ba, 'scooter_analysis.pipeline.BatchAnalyzer') && ...
+        strcmp(ba.DatasetName, 'HaifaBay') && ~isempty(ba.FileResults)
+    ba_h = ba;
+else
+    ba_h = BatchAnalyzer( ...
+        fullfile(base_dir, '20250805_Haifa_bay_LME/extracted-2'), cfg_h, ...
+        'Name', 'HaifaBay', 'Mode', 'concatenated');
+    ba_h.run();
+end
 
 
 cfg_c = AnalysisConfig.croatia();
@@ -231,17 +254,40 @@ out_base = fullfile(fileparts(mfilename('fullpath')), 'scooter_analysis', 'outpu
 
 % % 8. Fixed 60s Rolling Window Fairness Comparison & Derivative of Change
 rolling_win_sec = 60;
-res_h_roll = ba_h.getRollingFairnessResult(rolling_win_sec);
-res_c_roll = ba_c.getRollingFairnessResult(rolling_win_sec);
-res_auv_roll = ba_auv.getRollingFairnessResult(rolling_win_sec);
-PlotGenerator.rollingFairnessComparison({res_h_roll, res_c_roll, res_auv_roll}, ...
-    fullfile(out_base, sprintf('comparison_rolling_fairness_%ds.png', rolling_win_sec)));
-PlotGenerator.rollingFairnessDerivativeComparison({res_h_roll, res_c_roll, res_auv_roll}, ...
-    fullfile(out_base, sprintf('comparison_rolling_fairness_derivative_%ds.png', rolling_win_sec)));
+% res_h_roll = ba_h.getRollingFairnessResult(rolling_win_sec);
+% res_c_roll = ba_c.getRollingFairnessResult(rolling_win_sec);
+% res_auv_roll = ba_auv.getRollingFairnessResult(rolling_win_sec);
+% PlotGenerator.rollingFairnessComparison({res_h_roll, res_c_roll, res_auv_roll}, ...
+%     fullfile(out_base, sprintf('comparison_rolling_fairness_%ds.png', rolling_win_sec)));
+% PlotGenerator.rollingFairnessDerivativeComparison({res_h_roll, res_c_roll, res_auv_roll}, ...
+%     fullfile(out_base, sprintf('comparison_rolling_fairness_derivative_%ds.png', rolling_win_sec)));
 
-% 9. Bandwidth Distribution Histogram (60s Slice Means) & Std Error Comparison
-PlotGenerator.binnedBandwidthDistribution({ba_h, ba_c, ba_auv}, ...
-    fullfile(out_base, 'comparison_binned_bandwidth_60s_auv.png'));
+% % 9. Bandwidth Distribution Histogram (60s Slice Means) & Std Error Comparison
+% PlotGenerator.binnedBandwidthDistribution({ba_h, ba_c, ba_auv}, ...
+%     fullfile(out_base, 'comparison_binned_bandwidth_60s_auv.png'));
+
+% 10. Fixed 60s Rolling Window Phase Lock (PLL) & Instantaneous Frequency Stability Comparison
+res_h_pll_roll = ba_h.getRollingPhaseLockResult(rolling_win_sec);
+res_c_pll_roll = ba_c.getRollingPhaseLockResult(rolling_win_sec);
+res_auv_pll_roll = ba_auv.getRollingPhaseLockResult(rolling_win_sec);
+PlotGenerator.rollingPhaseLockComparison({res_h_pll_roll, res_c_pll_roll, res_auv_pll_roll}, ...
+    fullfile(out_base, sprintf('comparison_rolling_phase_lock_%ds.png', rolling_win_sec)));
+PlotGenerator.rollingPhaseLockDerivativeComparison({res_h_pll_roll, res_c_pll_roll, res_auv_pll_roll}, ...
+    fullfile(out_base, sprintf('comparison_rolling_phase_lock_derivative_%ds.png', rolling_win_sec)));
+
+% 11. Phase Lock (R) & PLL Instantaneous Frequency Verification Binned Distributions (60s Slices)
+PlotGenerator.binnedPhaseLockDistribution({ba_h, ba_c, ba_auv}, ...
+    fullfile(out_base, 'comparison_binned_phase_lock_60s_auv.png'));
+PlotGenerator.binnedInstFreqVerification({ba_h, ba_c, ba_auv}, ...
+    fullfile(out_base, 'comparison_binned_inst_freq_spread_60s_auv.png'));
+
+% 12. 4-Panel Phase Lock PDF & Multi-Scale Window Stability Comparison
+PlotGenerator.phaseLockComparison({ba_h, ba_c, ba_auv}, ...
+    fullfile(out_base, 'comparison_phase_lock'));
+
+% 13. Phase Lock & Instantaneous Frequency Verification Statistical Report
+ReportGenerator.writePhaseLockComparisonReport({ba_h, ba_c, ba_auv}, ...
+    fullfile(out_base, 'phase_lock_verification_statistics.txt'), rolling_win_sec);
 
 %% =====================================================================
 %  WORKFLOW 9: Multi-Dataset Watershed Bandwidth & Fairness Comparison

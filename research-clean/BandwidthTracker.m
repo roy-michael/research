@@ -659,5 +659,674 @@ classdef BandwidthTracker
             crossing_frequency = f(i1) + (level - y(i1)) * (f(i2) - f(i1)) / (y(i2) - y(i1));
         end
 
+
+        % =================================================================
+        % SECTION 3: Digital Phase-Locked Loop (PLL) & Instantaneous Frequency Verification
+        % =================================================================
+
+        function out = compute_pll_phase_lock(signal, fs, dom_lobe, cfg, slice_bw)
+            % COMPUTE_PLL_PHASE_LOCK Tracks carrier phase and instantaneous frequency via 2nd-order Digital PLL.
+            %
+            % Verifies instantaneous frequency stability, FM spread, and phase coherence (Phase Locking
+            % Value / Circular Mean Resultant Length R) across uniform time slices.
+            %
+            % Syntax:
+            %   out = BandwidthTracker.compute_pll_phase_lock(signal, fs, dom_lobe, cfg, slice_bw)
+            %
+            % Inputs:
+            %   signal   - 1D time-domain acoustic signal vector
+            %   fs       - Sampling frequency (Hz)
+            %   dom_lobe - Struct defining dominant macro-lobe (.peak_freq, .f_start, .f_end)
+            %   cfg      - Configuration struct (from AnalysisConfig.toBandwidthConfig)
+            %   slice_bw - Optional output struct from compute_watershed_slice_bandwidth for FFT comparison
+            %
+            % Outputs:
+            %   out      - Struct containing slice-level and segment-level phase lock & inst. freq metrics.
+
+            out = struct( ...
+                'found', false, ...
+                'f_center', NaN, ...
+                'mean_plv', NaN, ...
+                'global_r', NaN, ...
+                'phase_std_rad', NaN, ...
+                'inst_freq_mean_hz', NaN, ...
+                'inst_freq_std_hz', NaN, ...
+                'inst_freq_dev_hz', NaN, ...
+                'freq_verif_err_hz', NaN, ...
+                'lock_ratio', NaN, ...
+                'all_plvs', [], ...
+                'all_mean_phases', [], ...
+                'all_phase_stds', [], ...
+                'all_inst_freqs', [], ...
+                'all_inst_freq_stds', [], ...
+                'all_inst_freq_devs', [], ...
+                'all_freq_verif_errs', [], ...
+                'phase_samples', [], ...
+                'fairness_window_sec', [], ...
+                'all_plv_vs_win', [], ...
+                'all_phase_ent_vs_win', [], ...
+                'all_freq_lock_vs_win', []);
+
+            if isempty(signal) || length(signal) < 64 || ~isstruct(dom_lobe) || ~isfield(dom_lobe, 'peak_freq') || isnan(dom_lobe.peak_freq)
+                return;
+            end
+
+            sig = double(signal(:));
+            N   = length(sig);
+            f_center = double(dom_lobe.peak_freq);
+
+            % Extract configuration parameters with defaults
+            bp_margin_hz = 80.0;
+            if isfield(cfg, 'pll_bandpass_margin_hz') && ~isempty(cfg.pll_bandpass_margin_hz)
+                bp_margin_hz = cfg.pll_bandpass_margin_hz;
+            end
+            loop_bw_hz = 18.0;
+            if isfield(cfg, 'pll_loop_bw_hz') && ~isempty(cfg.pll_loop_bw_hz)
+                loop_bw_hz = cfg.pll_loop_bw_hz;
+            end
+            zeta = 0.707;
+            if isfield(cfg, 'pll_damping_zeta') && ~isempty(cfg.pll_damping_zeta)
+                zeta = cfg.pll_damping_zeta;
+            end
+            max_freq_dev_hz = 60.0;
+            if isfield(cfg, 'pll_max_freq_dev_hz') && ~isempty(cfg.pll_max_freq_dev_hz)
+                max_freq_dev_hz = cfg.pll_max_freq_dev_hz;
+            end
+            freq_lock_tol_hz = 5.0;
+            if isfield(cfg, 'pll_freq_lock_tol_hz') && ~isempty(cfg.pll_freq_lock_tol_hz)
+                freq_lock_tol_hz = cfg.pll_freq_lock_tol_hz;
+            end
+            slice_dur_sec = 0.500;
+            if isfield(cfg, 'slice_dur_sec') && ~isempty(cfg.slice_dur_sec)
+                slice_dur_sec = cfg.slice_dur_sec;
+            end
+            max_bins = 20;
+            if isfield(cfg, 'entropy_max_bins') && ~isempty(cfg.entropy_max_bins)
+                max_bins = cfg.entropy_max_bins;
+            end
+
+            % --- Step 1 & 2: Per-0.5s-Slice Dominant Frequency Bandpass & 2nd-Order Digital PLL ---
+            nyq = 0.5 * fs;
+            f_low_lim = 5.0;
+            if isfield(cfg, 'f_low') && ~isempty(cfg.f_low)
+                f_low_lim = max(5.0, cfg.f_low);
+            end
+            f_high_lim = nyq - 10.0;
+            if isfield(cfg, 'f_high') && ~isempty(cfg.f_high)
+                f_high_lim = min(nyq - 5.0, cfg.f_high);
+            end
+
+            seg_bw_est = 40.0;
+            if (nargin >= 5) && isstruct(slice_bw) && isfield(slice_bw, 'all_main_bws') && ~isempty(slice_bw.all_main_bws)
+                valid_bws = slice_bw.all_main_bws(isfinite(slice_bw.all_main_bws) & slice_bw.all_main_bws > 0);
+                if ~isempty(valid_bws)
+                    seg_bw_est = median(valid_bws);
+                end
+            elseif isstruct(dom_lobe) && isfield(dom_lobe, 'bandwidth') && isfinite(dom_lobe.bandwidth) && dom_lobe.bandwidth > 0
+                seg_bw_est = dom_lobe.bandwidth;
+            end
+
+            slice_len  = floor(fs * slice_dur_sec);
+            num_slices = floor(N / max(1, slice_len));
+            if num_slices < 1
+                return;
+            end
+
+            wn = 2.0 * pi * loop_bw_hz / (zeta + 1.0 / (4.0 * zeta));
+            kp = (2.0 * zeta * wn) / fs;
+            ki = (wn * wn) / (fs * fs);
+
+            max_dev_rad = 2.0 * pi * max_freq_dev_hz / fs;
+            two_pi      = 2.0 * pi;
+            fs_over_2pi = fs / two_pi;
+
+            all_plvs            = zeros(num_slices, 1);
+            all_mean_phases     = zeros(num_slices, 1);
+            all_phase_stds      = zeros(num_slices, 1);
+            all_inst_freqs      = zeros(num_slices, 1);
+            all_inst_freq_stds  = zeros(num_slices, 1);
+            all_inst_freq_devs  = zeros(num_slices, 1);
+            all_freq_verif_errs = nan(num_slices, 1);
+            phase_error         = zeros(num_slices * slice_len, 1);
+            local_t_idx         = (0 : slice_len - 1)';
+            hann_win            = 0.5 * (1 - cos(two_pi * local_t_idx / max(1, slice_len - 1)));
+            pad_len             = min(round(0.05 * fs), floor(slice_len / 4));
+            env_win             = max(16, round(0.08 * fs));
+
+            has_fft_slices = (nargin >= 5) && isstruct(slice_bw) && ...
+                isfield(slice_bw, 'slice_outputs') && length(slice_bw.slice_outputs) >= num_slices;
+
+            for m = 1:num_slices
+                idx = (m - 1) * slice_len + (1 : slice_len);
+
+                % 1. Identify the dominant frequency and bandwidth of this 0.5s slice
+                f_dom_m = NaN;
+                bw_m    = seg_bw_est;
+                if has_fft_slices && ~isempty(slice_bw.slice_outputs{m}) && ...
+                        isfield(slice_bw.slice_outputs{m}, 'found') && slice_bw.slice_outputs{m}.found
+                    if isfield(slice_bw.slice_outputs{m}, 'main_f') && isfinite(slice_bw.slice_outputs{m}.main_f) && slice_bw.slice_outputs{m}.main_f > 0
+                        f_dom_m = double(slice_bw.slice_outputs{m}.main_f);
+                    end
+                    if isfield(slice_bw.slice_outputs{m}, 'main_bw') && isfinite(slice_bw.slice_outputs{m}.main_bw) && slice_bw.slice_outputs{m}.main_bw > 0
+                        bw_m = double(slice_bw.slice_outputs{m}.main_bw);
+                    end
+                end
+
+                % Fallback to local 0.5s Hann-windowed FFT peak if slice_bw was not provided
+                if ~isfinite(f_dom_m) || f_dom_m <= 0
+                    sig_sl = sig(idx) .* hann_win;
+                    Y_sl   = abs(fft(sig_sl));
+                    n_half = floor(slice_len / 2) + 1;
+                    f_sl   = (0 : n_half - 1)' * (fs / slice_len);
+                    Y_half = Y_sl(1:n_half);
+                    valid_f = (f_sl >= f_low_lim) & (f_sl <= f_high_lim);
+                    if any(valid_f)
+                        Y_sub = Y_half;
+                        Y_sub(~valid_f) = -Inf;
+                        [~, pk_bin] = max(Y_sub);
+                        if pk_bin > 1 && pk_bin < n_half
+                            y1 = log(max(Y_half(pk_bin - 1), eps));
+                            y2 = log(max(Y_half(pk_bin), eps));
+                            y3 = log(max(Y_half(pk_bin + 1), eps));
+                            denom = 2 * (2 * y2 - y1 - y3);
+                            delta = 0;
+                            if abs(denom) > 1e-12
+                                delta = max(-0.5, min(0.5, (y1 - y3) / denom));
+                            end
+                            f_dom_m = f_sl(pk_bin) + delta * (fs / slice_len);
+                        else
+                            f_dom_m = f_sl(pk_bin);
+                        end
+                    else
+                        f_dom_m = f_center;
+                    end
+                end
+
+                % 2. Extract padded 0.5s segment and bandpass-filter around its dominant frequency f_dom_m
+                i_pad1  = max(1, idx(1) - pad_len);
+                i_pad2  = min(N, idx(end) + pad_len);
+                sig_pad = sig(i_pad1 : i_pad2);
+
+                eff_margin     = min(bp_margin_hz, max(16.0, 0.70 * bw_m));
+                max_sym_margin = min(max(12.0, f_dom_m - f_low_lim), max(12.0, f_high_lim - f_dom_m));
+                eff_margin     = min(eff_margin, max_sym_margin);
+
+                bp_low  = max(f_low_lim, f_dom_m - eff_margin);
+                bp_high = min(f_high_lim, f_dom_m + eff_margin);
+                if bp_low >= bp_high - 2.0
+                    bp_low  = max(5.0, f_dom_m - 25.0);
+                    bp_high = min(nyq - 5.0, f_dom_m + 25.0);
+                end
+
+                filt_pad = sig_pad;
+                if bp_low > 0 && bp_high < nyq && bp_low < bp_high
+                    try
+                        [b_bp, a_bp] = butter(2, [bp_low, bp_high] / nyq, 'bandpass');
+                        filt_pad = filtfilt(b_bp, a_bp, sig_pad);
+                    catch
+                        filt_pad = sig_pad;
+                    end
+                end
+
+                % Analytic signal & AGC normalization on padded slice, then trim guard pad
+                z_pad     = hilbert(filt_pad);
+                local_env = movmean(abs(z_pad), env_win);
+                rms_floor = 0.20 * median(abs(z_pad)) + eps;
+                z_norm    = z_pad ./ max(local_env, rms_floor);
+
+                trim_start = (idx(1) - i_pad1) + 1;
+                trim_range = trim_start : (trim_start + slice_len - 1);
+                real_sig   = max(-1.5, min(1.5, real(z_norm(trim_range))));
+                imag_sig   = max(-1.5, min(1.5, imag(z_norm(trim_range))));
+
+                % 3. Run 2nd-Order Digital PLL locked to this 0.5s slice's dominant frequency f_dom_m
+                w_center_m  = two_pi * f_dom_m / fs;
+                phase_raw_m = zeros(slice_len, 1);
+                pe_track_m  = zeros(slice_len, 1);
+                freq_out_m  = zeros(slice_len, 1);
+
+                phase           = atan2(imag_sig(1), real_sig(1));
+                freq_integrator = 0.0;
+
+                for i = 1:slice_len
+                    c_p = cos(phase);
+                    s_p = sin(phase);
+                    err_sin = imag_sig(i) * c_p - real_sig(i) * s_p;
+                    err_cos = real_sig(i) * c_p + imag_sig(i) * s_p;
+                    pe = err_sin;
+                    pe_track_m(i) = atan2(err_sin, err_cos);
+
+                    freq_integrator = freq_integrator + ki * pe;
+                    if freq_integrator > max_dev_rad
+                        freq_integrator = max_dev_rad;
+                    elseif freq_integrator < -max_dev_rad
+                        freq_integrator = -max_dev_rad;
+                    end
+
+                    freq_ctrl = kp * pe + freq_integrator;
+                    if freq_ctrl > max_dev_rad
+                        freq_ctrl = max_dev_rad;
+                    elseif freq_ctrl < -max_dev_rad
+                        freq_ctrl = -max_dev_rad;
+                    end
+
+                    phase          = phase + w_center_m + freq_ctrl;
+                    phase_raw_m(i) = phase;
+                    freq_out_m(i)  = (w_center_m + freq_ctrl) * fs_over_2pi;
+                end
+
+                % 4. Slice-level phase lock & instantaneous frequency statistics
+                f_mean_slice          = mean(freq_out_m);
+                f_std_slice           = std(freq_out_m);
+                all_inst_freqs(m)     = f_mean_slice;
+                all_inst_freq_stds(m) = f_std_slice;
+                all_inst_freq_devs(m) = abs(f_mean_slice - f_dom_m);
+                all_freq_verif_errs(m) = abs(f_mean_slice - f_dom_m);
+
+                % Phase trajectory relative to the 0.5s dominant frequency carrier
+                w_slice     = two_pi * f_mean_slice / fs;
+                phi_nco_dev = (phase_raw_m - phase_raw_m(1)) - w_slice * local_t_idx;
+                phi_seg     = mod(phi_nco_dev + pe_track_m + pi, two_pi) - pi;
+
+                % Circular Mean Resultant Length R (Phase Locking Value) in [0, 1]
+                mc       = mean(cos(phi_seg));
+                ms       = mean(sin(phi_seg));
+                R_val    = hypot(mc, ms);
+                phi_mean = atan2(ms, mc);
+
+                % Mean phase offset of this 0.5s segment relative to its FFT dominant frequency f_dom_m
+                phi_dom_rel = mod((phase_raw_m - phase_raw_m(1)) - w_center_m * local_t_idx + pe_track_m + pi, two_pi) - pi;
+                phi_dom_mean = atan2(mean(sin(phi_dom_rel)), mean(cos(phi_dom_rel)));
+
+                % Centered slice phase error & circular standard deviation
+                phi_centered       = mod(phi_seg - phi_mean + pi, two_pi) - pi;
+                phase_error(idx)   = phi_centered;
+                all_plvs(m)        = R_val;
+                all_mean_phases(m) = phi_dom_mean;
+                all_phase_stds(m)  = std(phi_centered);
+            end
+
+            % Store representative downsampled phase error samples (~600 per segment) for PDF/KDE
+            N_valid = num_slices * slice_len;
+            ds_step = max(1, floor(N_valid / 600));
+            phase_samples = phase_error(1:ds_step:N_valid);
+
+            % --- Step 4: Multiscale Phase & Instantaneous Frequency Stability vs Window Size ---
+            total_time_sec = num_slices * slice_dur_sec;
+            [win_sizes, all_plv_vs_win, all_phase_ent_vs_win, all_freq_lock_vs_win] = ...
+                BandwidthTracker.compute_phase_stability_vs_window( ...
+                    all_plvs, all_mean_phases, all_inst_freq_stds, slice_dur_sec, total_time_sec, freq_lock_tol_hz, max_bins);
+
+            % Populate summary metrics
+            out.found               = true;
+            out.f_center            = f_center;
+            out.mean_plv            = mean(all_plvs, 'omitnan');
+            out.global_r            = hypot(mean(cos(phase_error)), mean(sin(phase_error)));
+            out.phase_std_rad       = mean(all_phase_stds, 'omitnan');
+            out.inst_freq_mean_hz   = mean(all_inst_freqs, 'omitnan');
+            out.inst_freq_std_hz    = mean(all_inst_freq_stds, 'omitnan');
+            out.inst_freq_dev_hz    = mean(all_inst_freq_devs, 'omitnan');
+            out.freq_verif_err_hz   = mean(all_freq_verif_errs, 'omitnan');
+            out.lock_ratio          = mean(all_inst_freq_stds <= freq_lock_tol_hz, 'omitnan');
+            out.all_plvs            = all_plvs;
+            out.all_mean_phases     = all_mean_phases;
+            out.all_phase_stds      = all_phase_stds;
+            out.all_inst_freqs      = all_inst_freqs;
+            out.all_inst_freq_stds  = all_inst_freq_stds;
+            out.all_inst_freq_devs  = all_inst_freq_devs;
+            out.all_freq_verif_errs = all_freq_verif_errs;
+            out.phase_samples       = phase_samples;
+            out.fairness_window_sec = win_sizes;
+            out.all_plv_vs_win      = all_plv_vs_win;
+            out.all_phase_ent_vs_win = all_phase_ent_vs_win;
+            out.all_freq_lock_vs_win = all_freq_lock_vs_win;
+        end
+
+        function [window_sizes_sec, mean_plv, mean_phase_entropy, mean_freq_lock] = ...
+                compute_phase_stability_vs_window(plv_array, mean_phases_array, freq_std_array, slice_dur_sec, total_time_sec, freq_tol_hz, max_bins)
+            % COMPUTE_PHASE_STABILITY_VS_WINDOW Evaluates PLL phase lock & inst. freq stability vs window scale.
+            %
+            % Sweeps window duration W from 2 seconds to total_time_sec in 2-second increments.
+            % Applies a 5-second median pre-filter (matching compute_stability_vs_window) and computes:
+            %   1. Multiscale Phase Locking Value R(W) (vector resultant coherence across window W)
+            %   2. Normalized Circular Phase Shannon Entropy (H_phi_norm)
+            %   3. Instantaneous Frequency Lock Fairness Index (Jain's Fairness of PLL freq spread)
+
+            if nargin < 6 || isempty(freq_tol_hz); freq_tol_hz = 5.0; end
+            if nargin < 7 || isempty(max_bins); max_bins = 20; end
+
+            min_window_sec = 2;
+            max_window_sec = floor(total_time_sec);
+            if max_window_sec < min_window_sec || isempty(plv_array)
+                window_sizes_sec = [];
+                mean_plv = [];
+                mean_phase_entropy = [];
+                mean_freq_lock = [];
+                return;
+            end
+
+            % 5-second median pre-filter to eliminate single-slice impulse noise (consistent with bandwidth stability)
+            med_win = max(3, round(5 / slice_dur_sec));
+            plv_filt = medfilt1(double(plv_array(:)), med_win);
+            if ~isempty(mean_phases_array)
+                phi_filt = medfilt1(double(mean_phases_array(:)), med_win);
+            else
+                phi_filt = [];
+            end
+            if ~isempty(freq_std_array)
+                fstd_filt = medfilt1(double(freq_std_array(:)), med_win);
+            else
+                fstd_filt = [];
+            end
+
+            window_sizes_sec   = min_window_sec : 2 : max_window_sec;
+            mean_plv           = zeros(size(window_sizes_sec));
+            mean_phase_entropy = zeros(size(window_sizes_sec));
+            mean_freq_lock     = zeros(size(window_sizes_sec));
+
+            fs_samples = 1 / slice_dur_sec;
+            T          = length(plv_filt);
+
+            for idx = 1:length(window_sizes_sec)
+                win_sec = window_sizes_sec(idx);
+                N       = max(1, round(win_sec * fs_samples));
+
+                num_blocks = floor(T / N);
+                if num_blocks < 1
+                    mean_plv(idx)           = NaN;
+                    mean_phase_entropy(idx) = NaN;
+                    mean_freq_lock(idx)     = NaN;
+                    continue;
+                end
+
+                plv_blocks  = zeros(1, num_blocks);
+                ent_blocks  = zeros(1, num_blocks);
+                lock_blocks = zeros(1, num_blocks);
+
+                for b = 1:num_blocks
+                    range_idx = (b - 1) * N + 1 : b * N;
+                    blk_plv   = plv_filt(range_idx);
+                    valid_p   = isfinite(blk_plv);
+
+                    if ~any(valid_p)
+                        plv_blocks(b)  = NaN;
+                        ent_blocks(b)  = NaN;
+                        lock_blocks(b) = NaN;
+                        continue;
+                    end
+
+                    % 1. Multiscale Phase Lock Coherence R(W) across window N
+                    if ~isempty(phi_filt) && length(phi_filt) >= max(range_idx)
+                        blk_phi_raw = phi_filt(range_idx);
+                        valid_both  = valid_p & isfinite(blk_phi_raw);
+                        if any(valid_both)
+                            r_sub   = blk_plv(valid_both);
+                            phi_sub = blk_phi_raw(valid_both);
+                            plv_blocks(b) = hypot(mean(r_sub .* cos(phi_sub)), mean(r_sub .* sin(phi_sub)));
+                        else
+                            plv_blocks(b) = mean(blk_plv(valid_p));
+                        end
+                    else
+                        plv_blocks(b) = mean(blk_plv(valid_p));
+                    end
+
+                    % 2. Normalized Phase Shannon Entropy across [-pi, pi]
+                    if ~isempty(phi_filt) && length(phi_filt) >= max(range_idx)
+                        blk_phi = phi_filt(range_idx);
+                        blk_phi = blk_phi(isfinite(blk_phi));
+                    else
+                        blk_phi = [];
+                    end
+                    M_phi = length(blk_phi);
+                    if M_phi < 2
+                        ent_blocks(b) = 0;
+                    else
+                        num_bins = min([max_bins, M_phi, max(2, round(sqrt(M_phi) * 1.8))]);
+                        edges = linspace(-pi, pi, num_bins + 1);
+                        counts = histcounts(blk_phi, edges);
+                        p = counts / max(1, sum(counts));
+                        p = p(p > 0);
+                        if isempty(p) || isscalar(p)
+                            ent_blocks(b) = 0;
+                        else
+                            H = -sum(p .* log2(p));
+                            H_max = log2(num_bins);
+                            ent_blocks(b) = H / H_max;
+                        end
+                    end
+
+                    % 3. Instantaneous Frequency Lock Stability (Jain's Fairness of PLL freq spread)
+                    if ~isempty(fstd_filt) && length(fstd_filt) >= max(range_idx)
+                        blk_fstd = fstd_filt(range_idx);
+                        blk_fstd = blk_fstd(isfinite(blk_fstd) & blk_fstd >= 0);
+                    else
+                        blk_fstd = [];
+                    end
+                    if ~isempty(blk_fstd)
+                        M_f = length(blk_fstd);
+                        s_val = sum(blk_fstd);
+                        s_sq  = sum(blk_fstd.^2);
+                        if s_sq > 0
+                            lock_blocks(b) = (s_val^2) / (M_f * s_sq);
+                        else
+                            lock_blocks(b) = 1.0;
+                        end
+                    else
+                        lock_blocks(b) = NaN;
+                    end
+                end
+
+                mean_plv(idx)           = mean(plv_blocks, 'omitnan');
+                mean_phase_entropy(idx) = mean(ent_blocks, 'omitnan');
+                mean_freq_lock(idx)     = mean(lock_blocks, 'omitnan');
+            end
+        end
+
+        function [t_centers, plv_series, phase_ent_series, freq_lock_series, mean_freq_std, std_freq_std] = ...
+                compute_rolling_phase_stability(plv_array, mean_phases_array, freq_std_array, slice_dur_sec, window_sec, freq_tol_hz, stride_sec, max_bins)
+            % COMPUTE_ROLLING_PHASE_STABILITY Computes temporal trajectories of PLL phase lock & inst. freq metrics.
+            %
+            % Slides a window of duration window_sec (default: 60s non-overlapping stride) across the
+            % slice-level PLL time series and computes:
+            %   - plv_series:       Mean Phase Locking Value R(t) in [0, 1]
+            %   - phase_ent_series: Normalized Phase Shannon Entropy H_phi(t) in [0, 1]
+            %   - freq_lock_series: Instantaneous Frequency Stability Fairness Index in [0, 1]
+            %   - mean_freq_std:    Mean PLL Instantaneous Frequency Spread sigma_f(t) per window (Hz)
+            %   - std_freq_std:     SD of PLL Instantaneous Frequency Spread per window (Hz)
+
+            if nargin < 4 || isempty(slice_dur_sec); slice_dur_sec = 0.500; end
+            if nargin < 5 || isempty(window_sec);    window_sec    = 60.0;  end
+            if nargin < 6 || isempty(freq_tol_hz);   freq_tol_hz   = 5.0;   end
+            if nargin < 7 || isempty(stride_sec);    stride_sec    = window_sec; end
+            if nargin < 8 || isempty(max_bins);      max_bins      = 20;    end
+
+            % 5-second median pre-filter to smooth single-slice impulse noise (consistent with compute_rolling_stability)
+            med_win = max(3, round(5 / slice_dur_sec));
+            plv_filt = medfilt1(double(plv_array(:)), med_win);
+            if ~isempty(mean_phases_array)
+                phi_filt = medfilt1(double(mean_phases_array(:)), med_win);
+            else
+                phi_filt = [];
+            end
+            if ~isempty(freq_std_array)
+                fstd_filt = medfilt1(double(freq_std_array(:)), med_win);
+            else
+                fstd_filt = [];
+            end
+
+            N            = max(1, round(window_sec / slice_dur_sec));
+            step_samples = max(1, round(stride_sec / slice_dur_sec));
+            T            = length(plv_filt);
+
+            if T < N
+                t_centers = []; plv_series = []; phase_ent_series = []; freq_lock_series = [];
+                mean_freq_std = []; std_freq_std = [];
+                return;
+            end
+
+            num_windows = floor((T - N) / step_samples) + 1;
+            t_centers        = zeros(1, num_windows);
+            plv_series       = zeros(1, num_windows);
+            phase_ent_series = zeros(1, num_windows);
+            freq_lock_series = zeros(1, num_windows);
+            mean_freq_std    = zeros(1, num_windows);
+            std_freq_std     = zeros(1, num_windows);
+
+            for b = 1:num_windows
+                start_idx = (b - 1) * step_samples + 1;
+                end_idx   = start_idx + N - 1;
+                t_centers(b) = (start_idx - 1 + N / 2) * slice_dur_sec;
+
+                blk_plv = plv_filt(start_idx : end_idx);
+                blk_plv = blk_plv(isfinite(blk_plv));
+                if isempty(blk_plv)
+                    plv_series(b) = NaN;
+                else
+                    plv_series(b) = mean(blk_plv);
+                end
+
+                % Phase Shannon Entropy (Normalized)
+                if ~isempty(phi_filt) && length(phi_filt) >= end_idx
+                    blk_phi = phi_filt(start_idx : end_idx);
+                    blk_phi = blk_phi(isfinite(blk_phi));
+                else
+                    blk_phi = [];
+                end
+                M_phi = length(blk_phi);
+                if M_phi < 2
+                    phase_ent_series(b) = 0;
+                else
+                    num_bins = min([max_bins, M_phi, max(2, round(sqrt(M_phi) * 1.8))]);
+                    edges = linspace(-pi, pi, num_bins + 1);
+                    counts = histcounts(blk_phi, edges);
+                    p = counts / max(1, sum(counts));
+                    p = p(p > 0);
+                    if isempty(p) || isscalar(p)
+                        phase_ent_series(b) = 0;
+                    else
+                        H = -sum(p .* log2(p));
+                        H_max = log2(num_bins);
+                        phase_ent_series(b) = H / H_max;
+                    end
+                end
+
+                % Instantaneous Frequency Spread & Lock Fairness
+                if ~isempty(fstd_filt) && length(fstd_filt) >= end_idx
+                    blk_fstd = fstd_filt(start_idx : end_idx);
+                    blk_fstd = blk_fstd(isfinite(blk_fstd) & blk_fstd >= 0);
+                else
+                    blk_fstd = [];
+                end
+                if ~isempty(blk_fstd)
+                    mean_freq_std(b) = mean(blk_fstd);
+                    std_freq_std(b)  = std(blk_fstd);
+                    M_f   = length(blk_fstd);
+                    s_val = sum(blk_fstd);
+                    s_sq  = sum(blk_fstd.^2);
+                    if s_sq > 0
+                        freq_lock_series(b) = (s_val^2) / (M_f * s_sq);
+                    else
+                        freq_lock_series(b) = 1.0;
+                    end
+                else
+                    mean_freq_std(b)    = NaN;
+                    std_freq_std(b)     = NaN;
+                    freq_lock_series(b) = NaN;
+                end
+            end
+        end
+
+        function out = compute_binned_phase_lock(plv_array, freq_std_array, phase_std_array, freq_verif_err_array, slice_dur_sec, bin_dur_sec)
+            % COMPUTE_BINNED_PHASE_LOCK Aggregates PLL phase lock & inst. freq verification into fixed bins (e.g. 60s).
+            %
+            % Syntax:
+            %   out = BandwidthTracker.compute_binned_phase_lock( ...
+            %       plv_array, freq_std_array, phase_std_array, freq_verif_err_array, slice_dur_sec, bin_dur_sec)
+
+            if nargin < 5 || isempty(slice_dur_sec); slice_dur_sec = 0.500; end
+            if nargin < 6 || isempty(bin_dur_sec);   bin_dur_sec   = 60.0;  end
+
+            plv_array = plv_array(:);
+            out = struct( ...
+                'bin_dur_sec', bin_dur_sec, ...
+                'slice_times', [], ...
+                'plv_means', [], 'plv_stds', [], 'plv_sems', [], ...
+                'freq_std_means', [], 'freq_std_stds', [], 'freq_std_sems', [], ...
+                'phase_std_means', [], 'phase_std_stds', [], 'phase_std_sems', [], ...
+                'verif_err_means', [], 'verif_err_stds', [], 'verif_err_sems', []);
+
+            if isempty(plv_array)
+                return;
+            end
+
+            N_bin    = max(1, round(bin_dur_sec / slice_dur_sec));
+            num_bins = floor(length(plv_array) / N_bin);
+            if num_bins < 1
+                num_bins = 1;
+                N_bin = length(plv_array);
+            end
+
+            out.slice_times     = zeros(num_bins, 1);
+            out.plv_means       = nan(num_bins, 1);
+            out.plv_stds        = nan(num_bins, 1);
+            out.plv_sems        = nan(num_bins, 1);
+            out.freq_std_means  = nan(num_bins, 1);
+            out.freq_std_stds   = nan(num_bins, 1);
+            out.freq_std_sems   = nan(num_bins, 1);
+            out.phase_std_means = nan(num_bins, 1);
+            out.phase_std_stds  = nan(num_bins, 1);
+            out.phase_std_sems  = nan(num_bins, 1);
+            out.verif_err_means = nan(num_bins, 1);
+            out.verif_err_stds  = nan(num_bins, 1);
+            out.verif_err_sems  = nan(num_bins, 1);
+
+            for b = 1:num_bins
+                idx = (b - 1) * N_bin + 1 : min(length(plv_array), b * N_bin);
+                out.slice_times(b) = (b - 0.5) * bin_dur_sec;
+
+                % 1. Phase Locking Value (R)
+                blk_p = plv_array(idx);
+                blk_p = blk_p(isfinite(blk_p));
+                if ~isempty(blk_p)
+                    out.plv_means(b) = mean(blk_p);
+                    out.plv_stds(b)  = std(blk_p);
+                    out.plv_sems(b)  = out.plv_stds(b) / sqrt(length(blk_p));
+                end
+
+                % 2. PLL Instantaneous Frequency Spread (sigma_f in Hz)
+                if ~isempty(freq_std_array) && length(freq_std_array) >= max(idx)
+                    blk_f = freq_std_array(idx);
+                    blk_f = blk_f(isfinite(blk_f));
+                    if ~isempty(blk_f)
+                        out.freq_std_means(b) = mean(blk_f);
+                        out.freq_std_stds(b)  = std(blk_f);
+                        out.freq_std_sems(b)  = out.freq_std_stds(b) / sqrt(length(blk_f));
+                    end
+                end
+
+                % 3. Wrapped Phase Error Standard Deviation (sigma_phi in rad)
+                if ~isempty(phase_std_array) && length(phase_std_array) >= max(idx)
+                    blk_ph = phase_std_array(idx);
+                    blk_ph = blk_ph(isfinite(blk_ph));
+                    if ~isempty(blk_ph)
+                        out.phase_std_means(b) = mean(blk_ph);
+                        out.phase_std_stds(b)  = std(blk_ph);
+                        out.phase_std_sems(b)  = out.phase_std_stds(b) / sqrt(length(blk_ph));
+                    end
+                end
+
+                % 4. Instantaneous Frequency Verification Error |f_PLL - f_FFT| (Hz)
+                if ~isempty(freq_verif_err_array) && length(freq_verif_err_array) >= max(idx)
+                    blk_ve = freq_verif_err_array(idx);
+                    blk_ve = blk_ve(isfinite(blk_ve));
+                    if ~isempty(blk_ve)
+                        out.verif_err_means(b) = mean(blk_ve);
+                        out.verif_err_stds(b)  = std(blk_ve);
+                        out.verif_err_sems(b)  = out.verif_err_stds(b) / sqrt(length(blk_ve));
+                    end
+                end
+            end
+        end
+
     end
 end

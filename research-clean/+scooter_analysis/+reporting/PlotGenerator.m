@@ -1426,6 +1426,755 @@ classdef PlotGenerator
             % Alias for binnedBandwidthDistribution with 60s slices.
             scooter_analysis.reporting.PlotGenerator.binnedBandwidthDistribution(varargin{:});
         end
+
+
+        % =================================================================
+        % Phase Lock (Digital PLL) & Instantaneous Frequency Verification Plots
+        % =================================================================
+
+        function phaseLockComparison(varargin)
+            % phaseLockComparison - Plot and export 4-panel Phase Lock & Instantaneous Frequency
+            % Verification comparison across datasets or files.
+            %
+            % Generates:
+            %   1. Wrapped Phase Error Distribution (PDF in [-pi, pi])
+            %   2. Mean Phase Locking Value (Circular Sync R) vs Window Size N
+            %   3. Phase Concentration Stability (1 - H_phi_norm) vs Window Size N
+            %   4. Instantaneous Frequency Stability Fairness vs Window Size N
+            %
+            % Usage:
+            %   PlotGenerator.phaseLockComparison({ba_h, ba_c, ba_auv}, out_dir)
+
+            [results, out_dir] = scooter_analysis.reporting.PlotGenerator.parseVisualizerInputs(varargin{:});
+            if isempty(results)
+                return;
+            end
+
+            cfg_vis = struct('output_dir', out_dir);
+            Visualizer.render_phase_lock_distribution(results, cfg_vis);
+        end
+
+
+        function rollingPhaseLockComparison(varargin)
+            % rollingPhaseLockComparison - Plot 60s rolling Phase Lock (R), Phase Entropy (H_phi),
+            % and Instantaneous Frequency Lock Fairness paired with their derivatives of change (3x2 grid).
+            %
+            % Usage:
+            %   PlotGenerator.rollingPhaseLockComparison({res_h_pll, res_c_pll, res_auv_pll}, out_path)
+            %   PlotGenerator.rollingPhaseLockComparison({ba_h, ba_c, ba_auv}, out_path)
+
+            if isempty(varargin)
+                return;
+            end
+
+            [results, out_path] = scooter_analysis.reporting.PlotGenerator.parsePhaseLockRollingInputs(varargin{:});
+            if isempty(results)
+                return;
+            end
+
+            fig = figure('Name', 'Rolling Phase Lock & Instantaneous Frequency Stability Comparison', ...
+                'Position', [50, 50, 1600, 950], 'Color', [0.08 0.11 0.17], 'Visible', 'off');
+
+            ax1 = subplot(3, 2, 1);
+            ax2 = subplot(3, 2, 2);
+            ax3 = subplot(3, 2, 3);
+            ax4 = subplot(3, 2, 4);
+            ax5 = subplot(3, 2, 5);
+            ax6 = subplot(3, 2, 6);
+            all_axes = [ax1, ax2, ax3, ax4, ax5, ax6];
+
+            for ax = all_axes
+                hold(ax, 'on');
+            end
+
+            for ax = [ax2, ax4, ax6]
+                yline(ax, 0, '--', 'Color', [0.65 0.70 0.80], 'LineWidth', 1.2, 'Alpha', 0.85, ...
+                    'DisplayName', 'Zero Drift (Steady State)');
+            end
+
+            plotShadedRegion = @(ax, t_axis, data, color, varargin) ...
+                scooter_analysis.reporting.PlotGenerator.renderShadedPatch(ax, t_axis, data, color, varargin{:});
+
+            plotMeanLine = @(ax, t_axis, data, color) ...
+                plot(ax, [t_axis(1), t_axis(end)], [mean(data,'omitnan'), mean(data,'omitnan')], ...
+                '-', 'Color', color, 'LineWidth', 1.8, 'HandleVisibility', 'off');
+
+            max_t = 0;
+
+            for k = 1:length(results)
+                r = results{k};
+                if ~isfield(r, 'plv_series') || isempty(r.plv_series)
+                    continue;
+                end
+
+                bin_t    = r.t_centers;
+                bin_plv  = r.plv_series;
+                bin_pent = r.phase_ent_series;
+                bin_flk  = r.freq_lock_series;
+
+                if isempty(bin_t); continue; end
+                max_t = max(max_t, max(bin_t));
+                [c, ~] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(r.meta.name, k);
+
+                d_plv  = scooter_analysis.reporting.PlotGenerator.numericalDerivative(bin_t, bin_plv);
+                d_pent = scooter_analysis.reporting.PlotGenerator.numericalDerivative(bin_t, bin_pent);
+                d_flk  = scooter_analysis.reporting.PlotGenerator.numericalDerivative(bin_t, bin_flk);
+
+                d_plv_sg  = scooter_analysis.reporting.PlotGenerator.applySgolayFilter(d_plv, 2, 15);
+                d_pent_sg = scooter_analysis.reporting.PlotGenerator.applySgolayFilter(d_pent, 2, 15);
+                d_flk_sg  = scooter_analysis.reporting.PlotGenerator.applySgolayFilter(d_flk, 2, 15);
+
+                % --- Row 1: Phase Locking Value R and dR/dt ---
+                plotShadedRegion(ax1, bin_t, bin_plv, c, true);
+                plotMeanLine(ax1, bin_t, bin_plv, c);
+                plot(ax1, bin_t, bin_plv, '.-', 'Color', [c, 0.80], 'MarkerSize', 7, 'LineWidth', 1.1, ...
+                    'DisplayName', sprintf('%s (Mean: %.2f ± %.2f)', r.meta.name, mean(bin_plv,'omitnan'), std(bin_plv,'omitnan')));
+
+                plotShadedRegion(ax2, bin_t, d_plv, c);
+                plotMeanLine(ax2, bin_t, d_plv, c);
+                plot(ax2, bin_t, d_plv, ':', 'Color', [c, 0.35], 'MarkerSize', 4, 'LineWidth', 0.8, ...
+                    'DisplayName', sprintf('%s (Raw)', r.meta.name));
+                plot(ax2, bin_t, d_plv_sg, '-', 'Color', c, 'LineWidth', 2.0, ...
+                    'DisplayName', sprintf('%s (SG-Filtered)', r.meta.name));
+
+                % --- Row 2: Phase Entropy H_phi and d(H_phi)/dt ---
+                plotShadedRegion(ax3, bin_t, bin_pent, c, true);
+                plotMeanLine(ax3, bin_t, bin_pent, c);
+                plot(ax3, bin_t, bin_pent, '.-', 'Color', [c, 0.80], 'MarkerSize', 7, 'LineWidth', 1.1, ...
+                    'DisplayName', sprintf('%s (Mean: %.2f ± %.2f)', r.meta.name, mean(bin_pent,'omitnan'), std(bin_pent,'omitnan')));
+
+                plotShadedRegion(ax4, bin_t, d_pent, c);
+                plotMeanLine(ax4, bin_t, d_pent, c);
+                plot(ax4, bin_t, d_pent, ':', 'Color', [c, 0.35], 'MarkerSize', 4, 'LineWidth', 0.8, ...
+                    'DisplayName', sprintf('%s (Raw)', r.meta.name));
+                plot(ax4, bin_t, d_pent_sg, '-', 'Color', c, 'LineWidth', 2.0, ...
+                    'DisplayName', sprintf('%s (SG-Filtered)', r.meta.name));
+
+                % --- Row 3: Instantaneous Frequency Stability Fairness and Derivative ---
+                plotShadedRegion(ax5, bin_t, bin_flk, c, true);
+                plotMeanLine(ax5, bin_t, bin_flk, c);
+                plot(ax5, bin_t, bin_flk, '.-', 'Color', [c, 0.80], 'MarkerSize', 7, 'LineWidth', 1.1, ...
+                    'DisplayName', sprintf('%s (Mean: %.2f ± %.2f)', r.meta.name, mean(bin_flk,'omitnan'), std(bin_flk,'omitnan')));
+
+                plotShadedRegion(ax6, bin_t, d_flk, c);
+                plotMeanLine(ax6, bin_t, d_flk, c);
+                plot(ax6, bin_t, d_flk, ':', 'Color', [c, 0.35], 'MarkerSize', 4, 'LineWidth', 0.8, ...
+                    'DisplayName', sprintf('%s (Raw)', r.meta.name));
+                plot(ax6, bin_t, d_flk_sg, '-', 'Color', c, 'LineWidth', 2.0, ...
+                    'DisplayName', sprintf('%s (SG-Filtered)', r.meta.name));
+            end
+
+            ylim(ax1, [0, 1.02]);
+            ylim(ax3, [0, 1.02]);
+            cur_y5 = ylim(ax5);
+            ylim(ax5, [max(0, cur_y5(1)), 1.02]);
+
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax1, ...
+                'Phase Locking Value (Circular Sync R) - 60s Windows', '', 'Phase Lock R');
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax2, ...
+                'Phase Lock Rate of Change (Derivative: dR/dt)', '', 'dR/dt (s^{-1})');
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax3, ...
+                'Phase Shannon Entropy (Norm H_\phi) - 60s Windows', '', 'Phase Entropy (Norm)');
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax4, ...
+                'Phase Entropy Rate of Change (Derivative: d(H_\phi)/dt)', '', 'd(H_\phi)/dt (s^{-1})');
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax5, ...
+                'Instantaneous Frequency Lock Fairness - 60s Windows', 'Time (s)', 'Freq Lock Fairness');
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax6, ...
+                'Inst. Freq Fairness Rate of Change (Derivative: d(Fairness)/dt)', 'Time (s)', 'd(Fairness)/dt (s^{-1})');
+
+            for ax = all_axes
+                lgd = legend(ax, 'Location', 'best');
+                scooter_analysis.reporting.PlotGenerator.styleLegend(lgd);
+                if max_t > 0
+                    xlim(ax, [0, max_t * 1.02]);
+                end
+            end
+
+            scooter_analysis.reporting.PlotGenerator.safeExport(fig, out_path);
+        end
+
+
+        function rollingPhaseLockDerivativeComparison(varargin)
+            % rollingPhaseLockDerivativeComparison - Plot dedicated 3-panel time series of the
+            % rate of change (dy/dt) of Phase Locking Value R, Phase Entropy H_phi, and Inst. Freq Fairness.
+
+            if isempty(varargin)
+                return;
+            end
+
+            [results, out_path] = scooter_analysis.reporting.PlotGenerator.parsePhaseLockRollingInputs(varargin{:});
+            if isempty(results)
+                return;
+            end
+
+            fig = figure('Name', 'Rolling Phase Lock Derivative of Change', ...
+                'Position', [100, 100, 1200, 850], 'Color', [0.08 0.11 0.17], 'Visible', 'off');
+
+            ax1 = subplot(3, 1, 1);
+            ax2 = subplot(3, 1, 2);
+            ax3 = subplot(3, 1, 3);
+            all_axes = [ax1, ax2, ax3];
+
+            for ax = all_axes
+                hold(ax, 'on');
+                yline(ax, 0, '--', 'Color', [0.65 0.70 0.80], 'LineWidth', 1.2, 'Alpha', 0.85, ...
+                    'DisplayName', 'Zero Drift (Steady State)');
+            end
+
+            plotShadedRegion = @(ax, t_axis, data, color) ...
+                scooter_analysis.reporting.PlotGenerator.renderShadedPatch(ax, t_axis, data, color, false, 0.20);
+
+            plotMeanLine = @(ax, t_axis, data, color) ...
+                plot(ax, [t_axis(1), t_axis(end)], [mean(data,'omitnan'), mean(data,'omitnan')], ...
+                '-', 'Color', color, 'LineWidth', 1.8, 'HandleVisibility', 'off');
+
+            max_t = 0;
+
+            for k = 1:length(results)
+                r = results{k};
+                if ~isfield(r, 'plv_series') || isempty(r.plv_series)
+                    continue;
+                end
+
+                bin_t    = r.t_centers;
+                bin_plv  = r.plv_series;
+                bin_pent = r.phase_ent_series;
+                bin_flk  = r.freq_lock_series;
+
+                if isempty(bin_t); continue; end
+                max_t = max(max_t, max(bin_t));
+                [c, ~] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(r.meta.name, k);
+
+                d_plv  = scooter_analysis.reporting.PlotGenerator.numericalDerivative(bin_t, bin_plv);
+                d_pent = scooter_analysis.reporting.PlotGenerator.numericalDerivative(bin_t, bin_pent);
+                d_flk  = scooter_analysis.reporting.PlotGenerator.numericalDerivative(bin_t, bin_flk);
+
+                d_plv_sg  = scooter_analysis.reporting.PlotGenerator.applySgolayFilter(d_plv, 2, 15);
+                d_pent_sg = scooter_analysis.reporting.PlotGenerator.applySgolayFilter(d_pent, 2, 15);
+                d_flk_sg  = scooter_analysis.reporting.PlotGenerator.applySgolayFilter(d_flk, 2, 15);
+
+                plotShadedRegion(ax1, bin_t, d_plv, c);
+                plotMeanLine(ax1, bin_t, d_plv, c);
+                plot(ax1, bin_t, d_plv, ':', 'Color', [c, 0.35], 'MarkerSize', 4, 'LineWidth', 0.8, ...
+                    'DisplayName', sprintf('%s (Raw)', r.meta.name));
+                plot(ax1, bin_t, d_plv_sg, '-', 'Color', c, 'LineWidth', 2.0, ...
+                    'DisplayName', sprintf('%s (SG-Filtered, μ: %+.1e, σ: %.1e s⁻¹)', r.meta.name, mean(d_plv_sg,'omitnan'), std(d_plv_sg,'omitnan')));
+
+                plotShadedRegion(ax2, bin_t, d_pent, c);
+                plotMeanLine(ax2, bin_t, d_pent, c);
+                plot(ax2, bin_t, d_pent, ':', 'Color', [c, 0.35], 'MarkerSize', 4, 'LineWidth', 0.8, ...
+                    'DisplayName', sprintf('%s (Raw)', r.meta.name));
+                plot(ax2, bin_t, d_pent_sg, '-', 'Color', c, 'LineWidth', 2.0, ...
+                    'DisplayName', sprintf('%s (SG-Filtered, μ: %+.1e, σ: %.1e s⁻¹)', r.meta.name, mean(d_pent_sg,'omitnan'), std(d_pent_sg,'omitnan')));
+
+                plotShadedRegion(ax3, bin_t, d_flk, c);
+                plotMeanLine(ax3, bin_t, d_flk, c);
+                plot(ax3, bin_t, d_flk, ':', 'Color', [c, 0.35], 'MarkerSize', 4, 'LineWidth', 0.8, ...
+                    'DisplayName', sprintf('%s (Raw)', r.meta.name));
+                plot(ax3, bin_t, d_flk_sg, '-', 'Color', c, 'LineWidth', 2.0, ...
+                    'DisplayName', sprintf('%s (SG-Filtered, μ: %+.1e, σ: %.1e s⁻¹)', r.meta.name, mean(d_flk_sg,'omitnan'), std(d_flk_sg,'omitnan')));
+            end
+
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax1, ...
+                'Phase Locking Value Rate of Change (Derivative: dR/dt)', '', 'dR/dt (s^{-1})');
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax2, ...
+                'Phase Shannon Entropy Rate of Change (Derivative: d(H_\phi)/dt)', '', 'd(H_\phi)/dt (s^{-1})');
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax3, ...
+                'Instantaneous Frequency Lock Fairness Rate of Change (Derivative: d(Fairness)/dt)', 'Time (s)', 'd(Fairness)/dt (s^{-1})');
+
+            for ax = all_axes
+                lgd = legend(ax, 'Location', 'best');
+                scooter_analysis.reporting.PlotGenerator.styleLegend(lgd);
+                if max_t > 0
+                    xlim(ax, [0, max_t * 1.02]);
+                end
+            end
+
+            scooter_analysis.reporting.PlotGenerator.safeExport(fig, out_path);
+        end
+
+
+        function binnedPhaseLockDistribution(varargin)
+            % binnedPhaseLockDistribution - Plot 2x2 publication-grade figure of 60s Slice
+            % Phase Locking Value (R) & Instantaneous Frequency Spread (PLL sigma_f in Hz):
+            %   Panel 1: 60s Mean Phase Locking Value (R) Distribution (Normalized) with grouped bars, error bars, KDE & mean lines
+            %   Panel 2: 60s Mean PLL Instantaneous Frequency Spread (sigma_f in Hz) Distribution (Normalized)
+            %   Panel 3: 60s Slice Phase Locking Value (R) with Shaded ±SD vs Elapsed Time (minutes)
+            %   Panel 4: 60s Slice PLL Instantaneous Frequency Spread (Hz) with Shaded ±SD vs Elapsed Time (minutes)
+            %
+            % Usage:
+            %   PlotGenerator.binnedPhaseLockDistribution({ba_h, ba_c, ba_auv}, out_path)
+
+            if isempty(varargin)
+                return;
+            end
+
+            out_path = '';
+            last_arg = varargin{end};
+            if (ischar(last_arg) && isrow(last_arg)) || (isstring(last_arg) && isscalar(last_arg))
+                out_path = char(last_arg);
+                items = varargin(1:end-1);
+            else
+                items = varargin;
+            end
+
+            bin_dur_sec = 60.0;
+            if ~isempty(items) && isnumeric(items{end}) && isscalar(items{end})
+                bin_dur_sec = items{end};
+                items = items(1:end-1);
+            end
+
+            if length(items) == 1 && iscell(items{1})
+                items = items{1};
+            end
+
+            binned_datasets = scooter_analysis.reporting.PlotGenerator.extractBinnedPhaseLockDatasets(items, bin_dur_sec);
+            num_ds = length(binned_datasets);
+            if num_ds < 1
+                fprintf('[PlotGenerator] No binned phase lock data available to plot.\n');
+                return;
+            end
+
+            vis_state = 'off';
+            if isempty(out_path)
+                vis_state = 'on';
+            end
+
+            fig = figure('Name', sprintf('Phase Lock (R) & Instantaneous Frequency Verification (%ds Slices)', round(bin_dur_sec)), ...
+                'Position', [60, 60, 1400, 850], 'Color', [0.08 0.11 0.17], 'Visible', vis_state);
+
+            % --- Subplot 1: 60s Mean Phase Locking Value (R) Distribution ---
+            ax1 = subplot(2, 2, 1);
+            hold(ax1, 'on');
+
+            num_bins_plv = 14;
+            plv_edges = linspace(0.0, 1.0, num_bins_plv + 1);
+            plv_centers = (plv_edges(1:end-1) + plv_edges(2:end)) / 2;
+
+            P_plv = zeros(num_bins_plv, num_ds);
+            err_low_plv = zeros(num_bins_plv, num_ds);
+            err_up_plv  = zeros(num_bins_plv, num_ds);
+
+            for k = 1:num_ds
+                ds = binned_datasets{k};
+                N_k = length(ds.plv_means);
+                counts = histcounts(ds.plv_means, plv_edges);
+                probs = counts / max(1, N_k);
+                sigma_bar = sqrt(probs .* (1 - probs) ./ max(1, N_k));
+                P_plv(:, k) = probs(:);
+                err_low_plv(:, k) = min(probs(:), sigma_bar(:));
+                err_up_plv(:, k)  = sigma_bar(:);
+            end
+
+            if num_ds == 1
+                b1 = bar(ax1, plv_centers, P_plv, 'BarWidth', 0.95);
+            else
+                b1 = bar(ax1, plv_centers, P_plv, 'grouped', 'BarWidth', 0.95);
+            end
+
+            for k = 1:num_ds
+                ds = binned_datasets{k};
+                [c, ec] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
+
+                b1(k).FaceColor = c;
+                b1(k).EdgeColor = ec;
+                b1(k).FaceAlpha = 0.60;
+                b1(k).DisplayName = sprintf('%s (N=%d slices)', ds.name, length(ds.plv_means));
+
+                x_pos = b1(k).XEndPoints;
+                y_pos = b1(k).YData;
+                valid_bars = (y_pos > 0);
+                if any(valid_bars)
+                    errorbar(ax1, x_pos(valid_bars), y_pos(valid_bars), ...
+                        err_low_plv(valid_bars, k)', err_up_plv(valid_bars, k)', ...
+                        'LineStyle', 'none', 'Color', ec, 'LineWidth', 1.3, 'CapSize', 4, ...
+                        'HandleVisibility', 'off');
+                end
+
+                if length(ds.plv_means) >= 4
+                    try
+                        [f_kde, xi_kde] = ksdensity(ds.plv_means, 'Support', [0, 1]);
+                        max_p = max(P_plv(:, k));
+                        max_f = max(f_kde);
+                        if max_f > 0 && max_p > 0
+                            f_kde_norm = f_kde * (max_p / max_f);
+                        else
+                            f_kde_norm = f_kde;
+                        end
+                        plot(ax1, xi_kde, f_kde_norm, '-', 'Color', ec, 'LineWidth', 2, 'HandleVisibility', 'off');
+                    catch
+                    end
+                end
+
+                m_val = mean(ds.plv_means, 'omitnan');
+                within_sd = mean(ds.plv_stds, 'omitnan');
+                macro_sd  = std(ds.plv_means, 'omitnan');
+                xline(ax1, m_val, '--', 'Color', ec, 'LineWidth', 1.8, ...
+                    'DisplayName', sprintf('%s Mean R: %.2f ± %.2f (std: %.2f)', ds.name, m_val, within_sd, macro_sd));
+            end
+
+            max_p_plv = max(P_plv(:));
+            if max_p_plv <= 0; max_p_plv = 0.5; end
+            ylim(ax1, [0, min(1.0, max_p_plv * 1.18 + 0.05)]);
+            xlim(ax1, [0, 1.02]);
+
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax1, ...
+                sprintf('%ds Mean Phase Locking Value (R) Distribution (Normalized)', round(bin_dur_sec)), ...
+                sprintf('Mean Phase Locking Value R per %ds Slice', round(bin_dur_sec)), ...
+                'Normalized Probability');
+            lgd1 = legend(ax1, 'Location', 'best');
+            scooter_analysis.reporting.PlotGenerator.styleLegend(lgd1);
+
+            % --- Subplot 2: 60s Mean PLL Instantaneous Frequency Spread Distribution ---
+            ax2 = subplot(2, 2, 2);
+            hold(ax2, 'on');
+
+            all_fstd_concat = [];
+            for k = 1:num_ds
+                all_fstd_concat = [all_fstd_concat; binned_datasets{k}.freq_std_means(:)];
+            end
+            all_fstd_concat = all_fstd_concat(isfinite(all_fstd_concat));
+            if isempty(all_fstd_concat); all_fstd_concat = [0; 10]; end
+
+            min_fstd = max(0, min(all_fstd_concat) * 0.85);
+            max_fstd = max(all_fstd_concat) * 1.10;
+            if max_fstd <= min_fstd; max_fstd = min_fstd + 5.0; end
+            num_fstd_bins = min(16, max(8, round(sqrt(length(all_fstd_concat)) / 1.1)));
+            fstd_edges = linspace(min_fstd, max_fstd, num_fstd_bins + 1);
+            fstd_centers = (fstd_edges(1:end-1) + fstd_edges(2:end)) / 2;
+
+            P_fstd = zeros(num_fstd_bins, num_ds);
+            err_low_fstd = zeros(num_fstd_bins, num_ds);
+            err_up_fstd  = zeros(num_fstd_bins, num_ds);
+
+            for k = 1:num_ds
+                ds = binned_datasets{k};
+                N_k = length(ds.freq_std_means);
+                counts = histcounts(ds.freq_std_means, fstd_edges);
+                probs = counts / max(1, N_k);
+                sigma_bar = sqrt(probs .* (1 - probs) ./ max(1, N_k));
+                P_fstd(:, k) = probs(:);
+                err_low_fstd(:, k) = min(probs(:), sigma_bar(:));
+                err_up_fstd(:, k)  = sigma_bar(:);
+            end
+
+            if num_ds == 1
+                b2 = bar(ax2, fstd_centers, P_fstd, 'BarWidth', 0.95);
+            else
+                b2 = bar(ax2, fstd_centers, P_fstd, 'grouped', 'BarWidth', 0.95);
+            end
+
+            for k = 1:num_ds
+                ds = binned_datasets{k};
+                [c, ec] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
+
+                b2(k).FaceColor = c;
+                b2(k).EdgeColor = ec;
+                b2(k).FaceAlpha = 0.60;
+                b2(k).DisplayName = sprintf('%s (N=%d slices)', ds.name, length(ds.freq_std_means));
+
+                x_pos = b2(k).XEndPoints;
+                y_pos = b2(k).YData;
+                valid_bars = (y_pos > 0);
+                if any(valid_bars)
+                    errorbar(ax2, x_pos(valid_bars), y_pos(valid_bars), ...
+                        err_low_fstd(valid_bars, k)', err_up_fstd(valid_bars, k)', ...
+                        'LineStyle', 'none', 'Color', ec, 'LineWidth', 1.3, 'CapSize', 4, ...
+                        'HandleVisibility', 'off');
+                end
+
+                if length(ds.freq_std_means) >= 4
+                    try
+                        [f_kde, xi_kde] = ksdensity(ds.freq_std_means);
+                        max_p = max(P_fstd(:, k));
+                        max_f = max(f_kde);
+                        if max_f > 0 && max_p > 0
+                            f_kde_norm = f_kde * (max_p / max_f);
+                        else
+                            f_kde_norm = f_kde;
+                        end
+                        plot(ax2, xi_kde, f_kde_norm, '-', 'Color', ec, 'LineWidth', 2, 'HandleVisibility', 'off');
+                    catch
+                    end
+                end
+
+                m_fstd = mean(ds.freq_std_means, 'omitnan');
+                within_fstd = mean(ds.freq_std_stds, 'omitnan');
+                macro_fstd  = std(ds.freq_std_means, 'omitnan');
+                xline(ax2, m_fstd, '--', 'Color', ec, 'LineWidth', 1.8, ...
+                    'DisplayName', sprintf('%s Mean σ_f: %.1f ± %.1f Hz (std: %.1f)', ds.name, m_fstd, within_fstd, macro_fstd));
+            end
+
+            max_p_fstd = max(P_fstd(:));
+            if max_p_fstd <= 0; max_p_fstd = 0.5; end
+            ylim(ax2, [0, min(1.0, max_p_fstd * 1.18 + 0.05)]);
+
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax2, ...
+                sprintf('%ds PLL Instantaneous Frequency Spread (\\sigma_f) Distribution', round(bin_dur_sec)), ...
+                sprintf('Mean PLL Inst. Freq Spread \\sigma_f per %ds Slice (Hz)', round(bin_dur_sec)), ...
+                'Normalized Probability');
+            lgd2 = legend(ax2, 'Location', 'best');
+            scooter_analysis.reporting.PlotGenerator.styleLegend(lgd2);
+
+            % --- Subplot 3: 60s Slice Phase Locking Value (R) with Shaded ±SD vs Time ---
+            ax3 = subplot(2, 2, 3);
+            hold(ax3, 'on');
+
+            for k = 1:num_ds
+                ds = binned_datasets{k};
+                [c, ~] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
+                t_min = ds.slice_times(:)' / 60;
+                y_row = ds.plv_means(:)';
+                err_row = ds.plv_stds(:)';
+
+                valid_mask = isfinite(t_min) & isfinite(y_row) & isfinite(err_row);
+                t_v = t_min(valid_mask);
+                y_v = y_row(valid_mask);
+                e_v = err_row(valid_mask);
+
+                if ~isempty(t_v)
+                    upper_b = min(1.0, y_v + e_v);
+                    lower_b = max(0.0, y_v - e_v);
+                    patch(ax3, [t_v, fliplr(t_v)], [upper_b, fliplr(lower_b)], ...
+                        c, 'FaceAlpha', 0.20, 'EdgeColor', 'none', 'HandleVisibility', 'off');
+                    plot(ax3, t_v, y_v, '.-', 'Color', [c, 0.90], 'MarkerSize', 8, 'LineWidth', 1.2, ...
+                        'DisplayName', sprintf('%s (Mean R: %.2f ± %.2f)', ds.name, mean(y_v), mean(e_v)));
+                end
+            end
+            ylim(ax3, [0, 1.05]);
+
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax3, ...
+                sprintf('%ds Slice Mean Phase Locking Value (R) with Shaded ±SD', round(bin_dur_sec)), ...
+                'Elapsed Time (minutes)', 'Phase Locking Value R ± SD');
+            lgd3 = legend(ax3, 'Location', 'best');
+            scooter_analysis.reporting.PlotGenerator.styleLegend(lgd3);
+
+            % --- Subplot 4: 60s Slice PLL Instantaneous Frequency Spread with Shaded ±SD vs Time ---
+            ax4 = subplot(2, 2, 4);
+            hold(ax4, 'on');
+
+            for k = 1:num_ds
+                ds = binned_datasets{k};
+                [c, ~] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
+                t_min = ds.slice_times(:)' / 60;
+                y_row = ds.freq_std_means(:)';
+                err_row = ds.freq_std_stds(:)';
+
+                valid_mask = isfinite(t_min) & isfinite(y_row) & isfinite(err_row);
+                t_v = t_min(valid_mask);
+                y_v = y_row(valid_mask);
+                e_v = err_row(valid_mask);
+
+                if ~isempty(t_v)
+                    upper_b = y_v + e_v;
+                    lower_b = max(0.0, y_v - e_v);
+                    patch(ax4, [t_v, fliplr(t_v)], [upper_b, fliplr(lower_b)], ...
+                        c, 'FaceAlpha', 0.20, 'EdgeColor', 'none', 'HandleVisibility', 'off');
+                    plot(ax4, t_v, y_v, '.-', 'Color', [c, 0.90], 'MarkerSize', 8, 'LineWidth', 1.2, ...
+                        'DisplayName', sprintf('%s (Mean σ_f: %.1f ± %.1f Hz)', ds.name, mean(y_v), mean(e_v)));
+                    yline(ax4, mean(y_v), ':', 'Color', c, 'LineWidth', 1.5, 'HandleVisibility', 'off');
+                end
+            end
+
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax4, ...
+                sprintf('%ds Slice PLL Instantaneous Frequency Spread (\\sigma_f) with Shaded ±SD', round(bin_dur_sec)), ...
+                'Elapsed Time (minutes)', 'PLL Inst. Freq Spread \sigma_f ± SD (Hz)');
+            lgd4 = legend(ax4, 'Location', 'best');
+            scooter_analysis.reporting.PlotGenerator.styleLegend(lgd4);
+
+            if ~isempty(out_path)
+                scooter_analysis.reporting.PlotGenerator.safeExport(fig, out_path);
+            end
+        end
+
+
+        function binnedInstFreqVerification(varargin)
+            % binnedInstFreqVerification - Plot 2x2 publication-grade figure of 60s Slice
+            % PLL Instantaneous Frequency Verification Error |f_PLL - f_FFT| (Hz) & SD across slices.
+            % Directly mirrors binnedBandwidthDistribution for instantaneous frequency verification.
+
+            if isempty(varargin)
+                return;
+            end
+
+            out_path = '';
+            last_arg = varargin{end};
+            if (ischar(last_arg) && isrow(last_arg)) || (isstring(last_arg) && isscalar(last_arg))
+                out_path = char(last_arg);
+                items = varargin(1:end-1);
+            else
+                items = varargin;
+            end
+
+            bin_dur_sec = 60.0;
+            if ~isempty(items) && isnumeric(items{end}) && isscalar(items{end})
+                bin_dur_sec = items{end};
+                items = items(1:end-1);
+            end
+
+            if length(items) == 1 && iscell(items{1})
+                items = items{1};
+            end
+
+            binned_datasets = scooter_analysis.reporting.PlotGenerator.extractBinnedPhaseLockDatasets(items, bin_dur_sec);
+            num_ds = length(binned_datasets);
+            if num_ds < 1
+                fprintf('[PlotGenerator] No binned instantaneous frequency verification data available.\n');
+                return;
+            end
+
+            % Build adapter structs so binnedBandwidthDistribution-style 4-panel layout renders
+            % the PLL Instantaneous Frequency Spread (2 * sigma_f in Hz) & its SD across 60s slices
+            adapted = cell(1, num_ds);
+            for k = 1:num_ds
+                ds = binned_datasets{k};
+                ad = struct();
+                ad.meta.name   = ds.name;
+                ad.slice_means = ds.freq_std_means;
+                ad.slice_stds  = ds.freq_std_stds;
+                ad.slice_sems  = ds.freq_std_sems;
+                ad.slice_times = ds.slice_times;
+                adapted{k} = ad;
+            end
+
+            vis_state = 'off';
+            if isempty(out_path); vis_state = 'on'; end
+
+            fig = figure('Name', sprintf('PLL Instantaneous Frequency Spread (%ds Slices) & SD', round(bin_dur_sec)), ...
+                'Position', [60, 60, 1400, 850], 'Color', [0.08 0.11 0.17], 'Visible', vis_state);
+
+            ax1 = subplot(2, 2, 1); hold(ax1, 'on');
+            ax2 = subplot(2, 2, 2); hold(ax2, 'on');
+            ax3 = subplot(2, 2, 3); hold(ax3, 'on');
+            ax4 = subplot(2, 2, 4); hold(ax4, 'on');
+
+            all_means_concat = [];
+            all_err_concat   = [];
+            for k = 1:num_ds
+                all_means_concat = [all_means_concat; adapted{k}.slice_means(:)];
+                all_err_concat   = [all_err_concat; adapted{k}.slice_stds(:)];
+            end
+            all_means_concat = all_means_concat(isfinite(all_means_concat));
+            all_err_concat   = all_err_concat(isfinite(all_err_concat));
+
+            min_v = max(0, min(all_means_concat) - 1);
+            max_v = max(all_means_concat) + 1;
+            if max_v <= min_v; max_v = min_v + 5; end
+            num_bins = min(16, max(8, round(sqrt(length(all_means_concat)) / 1.2)));
+            bin_edges = linspace(min_v, max_v, num_bins + 1);
+            bin_centers = (bin_edges(1:end-1) + bin_edges(2:end)) / 2;
+
+            P_mat = zeros(num_bins, num_ds);
+            el_mat = zeros(num_bins, num_ds);
+            eu_mat = zeros(num_bins, num_ds);
+            for k = 1:num_ds
+                N_k = length(adapted{k}.slice_means);
+                counts = histcounts(adapted{k}.slice_means, bin_edges);
+                probs = counts / max(1, N_k);
+                sig_b = sqrt(probs .* (1 - probs) ./ max(1, N_k));
+                P_mat(:, k)  = probs(:);
+                el_mat(:, k) = min(probs(:), sig_b(:));
+                eu_mat(:, k) = sig_b(:);
+            end
+
+            if num_ds == 1
+                b = bar(ax1, bin_centers, P_mat, 'BarWidth', 0.95);
+            else
+                b = bar(ax1, bin_centers, P_mat, 'grouped', 'BarWidth', 0.95);
+            end
+
+            min_err = max(0, min(all_err_concat) * 0.8);
+            max_err = max(all_err_concat) * 1.05;
+            if max_err <= min_err; max_err = min_err + 2.0; end
+            err_edges = linspace(min_err, max_err, min(20, max(8, round(sqrt(length(all_err_concat))))) + 1);
+
+            for k = 1:num_ds
+                ds = adapted{k};
+                [c, ec] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.meta.name, k);
+
+                b(k).FaceColor = c;
+                b(k).EdgeColor = ec;
+                b(k).FaceAlpha = 0.60;
+                b(k).DisplayName = sprintf('%s (N=%d slices)', ds.meta.name, length(ds.slice_means));
+
+                x_pos = b(k).XEndPoints;
+                y_pos = b(k).YData;
+                vb = (y_pos > 0);
+                if any(vb)
+                    errorbar(ax1, x_pos(vb), y_pos(vb), el_mat(vb, k)', eu_mat(vb, k)', ...
+                        'LineStyle', 'none', 'Color', ec, 'LineWidth', 1.3, 'CapSize', 4, 'HandleVisibility', 'off');
+                end
+
+                if length(ds.slice_means) >= 4
+                    try
+                        [f_kde, xi_kde] = ksdensity(ds.slice_means);
+                        max_p = max(P_mat(:, k));
+                        max_f = max(f_kde);
+                        if max_f > 0 && max_p > 0
+                            plot(ax1, xi_kde, f_kde * (max_p / max_f), '-', 'Color', ec, 'LineWidth', 2, 'HandleVisibility', 'off');
+                        end
+                    catch
+                    end
+                end
+
+                m_val = mean(ds.slice_means, 'omitnan');
+                within_sd = mean(ds.slice_stds, 'omitnan');
+                macro_sd  = std(ds.slice_means, 'omitnan');
+                xline(ax1, m_val, '--', 'Color', ec, 'LineWidth', 1.8, ...
+                    'DisplayName', sprintf('%s Mean: %.1f ± %.1f Hz (std: %.1f)', ds.meta.name, m_val, within_sd, macro_sd));
+
+                % Subplot 2: SD histogram
+                histogram(ax2, min(ds.slice_stds, max_err), err_edges, 'Normalization', 'probability', ...
+                    'FaceColor', c, 'EdgeColor', ec, 'FaceAlpha', 0.60, ...
+                    'DisplayName', sprintf('%s (Avg SD: %.2f Hz)', ds.meta.name, within_sd));
+                xline(ax2, within_sd, '--', 'Color', ec, 'LineWidth', 1.8, ...
+                    'DisplayName', sprintf('%s Avg SD: %.2f Hz', ds.meta.name, within_sd));
+
+                % Subplot 3: Mean ± SD vs Time
+                t_min = ds.slice_times(:)' / 60;
+                y_row = ds.slice_means(:)';
+                e_row = ds.slice_stds(:)';
+                vm = isfinite(t_min) & isfinite(y_row) & isfinite(e_row);
+                if any(vm)
+                    tv = t_min(vm); yv = y_row(vm); ev = e_row(vm);
+                    patch(ax3, [tv, fliplr(tv)], [yv + ev, fliplr(max(0, yv - ev))], ...
+                        c, 'FaceAlpha', 0.20, 'EdgeColor', 'none', 'HandleVisibility', 'off');
+                    plot(ax3, tv, yv, '.-', 'Color', [c, 0.90], 'MarkerSize', 8, 'LineWidth', 1.2, ...
+                        'DisplayName', sprintf('%s (Mean: %.1f Hz)', ds.meta.name, mean(yv)));
+                end
+
+                % Subplot 4: SD vs Time
+                plot(ax4, t_min, ds.slice_stds, '.-', 'Color', c, 'LineWidth', 1.2, ...
+                    'MarkerSize', 10, 'DisplayName', sprintf('%s (Avg SD: %.2f Hz)', ds.meta.name, within_sd));
+                yline(ax4, within_sd, ':', 'Color', c, 'LineWidth', 1.5, 'HandleVisibility', 'off');
+            end
+
+            ylim(ax1, [0, min(1.0, max(P_mat(:)) * 1.15 + 0.05)]);
+            ylim(ax2, [0, 1.05]);
+
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax1, ...
+                sprintf('%ds Mean PLL Inst. Frequency Spread Distribution (Normalized)', round(bin_dur_sec)), ...
+                sprintf('Mean PLL Inst. Freq Spread \\sigma_f per %ds Slice (Hz)', round(bin_dur_sec)), ...
+                'Normalized Probability');
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax2, ...
+                sprintf('Standard Deviation Distribution Across %ds Slices (Normalized)', round(bin_dur_sec)), ...
+                'Standard Deviation SD (Hz)', 'Normalized Probability');
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax3, ...
+                sprintf('%ds Slice Mean PLL Inst. Frequency Spread with Shaded ±SD', round(bin_dur_sec)), ...
+                'Elapsed Time (minutes)', 'Mean PLL Freq Spread \sigma_f ± SD (Hz)');
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax4, ...
+                sprintf('Standard Deviation for Each %ds Slice', round(bin_dur_sec)), ...
+                'Elapsed Time (minutes)', 'Standard Deviation SD (Hz)');
+
+            for ax = [ax1, ax2, ax3, ax4]
+                lgd = legend(ax, 'Location', 'best');
+                scooter_analysis.reporting.PlotGenerator.styleLegend(lgd);
+            end
+
+            if ~isempty(out_path)
+                scooter_analysis.reporting.PlotGenerator.safeExport(fig, out_path);
+            end
+        end
     end
 
 
@@ -1529,6 +2278,113 @@ classdef PlotGenerator
             elseif isstruct(item)
                 if isfield(item, 'meta') || isfield(item, 'f_grid')
                     results{end+1} = item;
+                end
+            end
+        end
+
+        function [results, out_path] = parsePhaseLockRollingInputs(varargin)
+            results = {};
+            out_path = '';
+            if isempty(varargin)
+                return;
+            end
+            last_arg = varargin{end};
+            if (ischar(last_arg) && isrow(last_arg)) || (isstring(last_arg) && isscalar(last_arg))
+                out_path = char(last_arg);
+                items = varargin(1:end-1);
+            else
+                items = varargin;
+            end
+            if length(items) == 1 && iscell(items{1})
+                items = items{1};
+            end
+            for i = 1:numel(items)
+                it = items{i};
+                if isa(it, 'scooter_analysis.pipeline.BatchAnalyzer')
+                    results{end+1} = it.getRollingPhaseLockResult(60.0);
+                elseif isa(it, 'scooter_analysis.results.FileResult')
+                    results{end+1} = it.getRollingPhaseLockResult(60.0);
+                elseif isstruct(it)
+                    if isfield(it, 'plv_series')
+                        results{end+1} = it;
+                    elseif isfield(it, 'pll_result') && isfield(it.pll_result, 'all_slice_plv')
+                        [t_c, plv_s, ent_s, fair_s] = BandwidthTracker.compute_rolling_phase_stability( ...
+                            it.pll_result.all_slice_plv, it.pll_result.all_slice_mean_phases, ...
+                            it.pll_result.all_slice_inst_freq_stds, 0.500, 60.0, 5.0, 0.500);
+                        r_s = struct('meta', it.meta, 'window_sec', 60.0, ...
+                            't_centers', t_c, 'plv_series', plv_s, ...
+                            'phase_ent_series', ent_s, 'freq_fair_series', fair_s);
+                        results{end+1} = r_s;
+                    end
+                end
+            end
+        end
+
+        function binned_datasets = extractBinnedPhaseLockDatasets(items, bin_dur_sec)
+            binned_datasets = {};
+            for i = 1:numel(items)
+                item = items{i};
+                if isempty(item); continue; end
+                ds = struct();
+                if isa(item, 'scooter_analysis.pipeline.BatchAnalyzer')
+                    r = item.getBinnedPhaseLockResult(bin_dur_sec);
+                    ds = r;
+                    ds.name = item.DatasetName;
+                elseif isa(item, 'scooter_analysis.results.FileResult')
+                    r = item.getBinnedPhaseLockResult(bin_dur_sec);
+                    ds = r;
+                    ds.name = item.filename;
+                elseif isstruct(item)
+                    if isfield(item, 'meta') && isfield(item.meta, 'name')
+                        ds.name = item.meta.name;
+                    elseif isfield(item, 'name')
+                        ds.name = item.name;
+                    else
+                        ds.name = sprintf('Dataset %d', i);
+                    end
+
+                    if isfield(item, 'plv_means') && isfield(item, 'freq_std_means')
+                        ds.plv_means      = item.plv_means;
+                        ds.plv_stds       = item.plv_stds;
+                        ds.plv_sems       = item.plv_sems;
+                        ds.freq_std_means = item.freq_std_means;
+                        ds.freq_std_stds  = item.freq_std_stds;
+                        ds.freq_std_sems  = item.freq_std_sems;
+                        ds.verif_means    = item.verif_means;
+                        ds.verif_stds     = item.verif_stds;
+                        ds.slice_times    = item.slice_times;
+                    elseif isfield(item, 'pll_result') && isfield(item.pll_result, 'all_slice_plv')
+                        [ds.plv_means, ds.plv_sems, ds.slice_times, ds.plv_stds, ...
+                            ds.freq_std_means, ds.freq_std_sems, ds.freq_std_stds, ...
+                            ds.verif_means, ds.verif_stds] = ...
+                            BandwidthTracker.compute_binned_phase_lock( ...
+                            item.pll_result.all_slice_plv, ...
+                            item.pll_result.all_slice_inst_freq_stds, ...
+                            item.pll_result.all_slice_phase_stds, ...
+                            item.pll_result.all_slice_freq_verif_errs, ...
+                            0.500, bin_dur_sec);
+                    else
+                        continue;
+                    end
+                else
+                    continue;
+                end
+
+                valid_mask = isfinite(ds.plv_means) & ds.plv_means >= 0;
+                ds.plv_means      = ds.plv_means(valid_mask);
+                ds.plv_stds       = ds.plv_stds(valid_mask);
+                ds.plv_sems       = ds.plv_sems(valid_mask);
+                ds.freq_std_means = ds.freq_std_means(valid_mask);
+                ds.freq_std_stds  = ds.freq_std_stds(valid_mask);
+                ds.freq_std_sems  = ds.freq_std_sems(valid_mask);
+                if isfield(ds, 'verif_means') && length(ds.verif_means) == length(valid_mask)
+                    ds.verif_means = ds.verif_means(valid_mask);
+                    ds.verif_stds  = ds.verif_stds(valid_mask);
+                end
+                ds.slice_times    = ds.slice_times(valid_mask);
+
+                if ~isempty(ds.plv_means)
+                    binned_datasets{end+1} = ds;
                 end
             end
         end

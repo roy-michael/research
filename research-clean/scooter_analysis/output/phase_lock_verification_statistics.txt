@@ -1,0 +1,40 @@
+====================================================================================================
+PHASE LOCK (PLL) & INSTANTANEOUS FREQUENCY VERIFICATION SUMMARY (60s WINDOWS)
+====================================================================================================
+
+Dataset: HaifaBay  (N = 480 windows of 60s | 57600 slices of 0.5s)
+----------------------------------------------------------------------------------------------------
+  Dominant Frequency (Welch Peak)      :  169.89 ± 232.91 Hz
+  PLL Tracked Instantaneous Frequency  :  172.95 ± 232.61 Hz
+  Inst. Freq Verification |f_PLL-f_FFT|:    3.79 ±   4.73 Hz (Median: 2.30 Hz)
+  Watershed Bandwidth (60s Slice Mean) :   95.60 ±  42.02 Hz (Macro SD: 38.00 Hz)
+  PLL Inst. Freq Spread sigma_f (60s)  :   12.92 ±   3.81 Hz (Macro SD: 3.50 Hz)
+  Phase Locking Value R (60s Mean)     :   0.294 ±  0.175    (Macro SD: 0.117 | Median: 0.238)
+  Wrapped Phase Error SD sigma_phi     :   1.434 ±  0.324 rad
+  Normalized Phase Entropy H_phi (60s) :   0.704 ±  0.060
+  Inst. Freq Stability Fairness (60s)  :   0.973 ±  0.041
+
+Dataset: Croatia  (N = 327 windows of 60s | 39240 slices of 0.5s)
+----------------------------------------------------------------------------------------------------
+  Dominant Frequency (Welch Peak)      :  740.83 ± 267.25 Hz
+  PLL Tracked Instantaneous Frequency  :  743.00 ± 258.89 Hz
+  Inst. Freq Verification |f_PLL-f_FFT|:    2.15 ±   2.59 Hz (Median: 1.38 Hz)
+  Watershed Bandwidth (60s Slice Mean) :   27.40 ±  15.70 Hz (Macro SD: 18.96 Hz)
+  PLL Inst. Freq Spread sigma_f (60s)  :   10.19 ±   3.33 Hz (Macro SD: 3.10 Hz)
+  Phase Locking Value R (60s Mean)     :   0.435 ±  0.218    (Macro SD: 0.181 | Median: 0.345)
+  Wrapped Phase Error SD sigma_phi     :   1.213 ±  0.471 rad
+  Normalized Phase Entropy H_phi (60s) :   0.689 ±  0.067
+  Inst. Freq Stability Fairness (60s)  :   0.937 ±  0.082
+
+Dataset: AUV  (N = 305 windows of 60s | 36600 slices of 0.5s)
+----------------------------------------------------------------------------------------------------
+  Dominant Frequency (Welch Peak)      :  713.09 ± 292.33 Hz
+  PLL Tracked Instantaneous Frequency  :  720.13 ± 285.68 Hz
+  Inst. Freq Verification |f_PLL-f_FFT|:    2.12 ±   2.28 Hz (Median: 1.43 Hz)
+  Watershed Bandwidth (60s Slice Mean) :   25.90 ±  11.25 Hz (Macro SD: 12.85 Hz)
+  PLL Inst. Freq Spread sigma_f (60s)  :   10.22 ±   2.79 Hz (Macro SD: 3.09 Hz)
+  Phase Locking Value R (60s Mean)     :   0.428 ±  0.205    (Macro SD: 0.188 | Median: 0.346)
+  Wrapped Phase Error SD sigma_phi     :   1.230 ±  0.447 rad
+  Normalized Phase Entropy H_phi (60s) :   0.668 ±  0.081
+  Inst. Freq Stability Fairness (60s)  :   0.960 ±  0.061
+====================================================================================================

@@ -18,7 +18,18 @@ classdef SegmentResult
         
         % Full BandwidthTracker output (preserved for fairness graphs)
         slice_bw    struct = struct()      % Output of BandwidthTracker
-        
+
+        % Phase Lock (Digital PLL) & Instantaneous Frequency Verification output
+        pll_mean_plv      (1,1) double = NaN   % Mean Phase Locking Value (Circular Sync R in [0,1])
+        pll_global_r      (1,1) double = NaN   % Global segment circular resultant length R
+        pll_phase_std     (1,1) double = NaN   % Mean slice wrapped phase error SD (rad)
+        pll_freq_mean     (1,1) double = NaN   % Mean PLL tracked instantaneous frequency (Hz)
+        pll_freq_std      (1,1) double = NaN   % Mean slice PLL instantaneous frequency spread SD (Hz)
+        pll_freq_dev      (1,1) double = NaN   % Mean slice PLL frequency drift from carrier (Hz)
+        pll_freq_verif_err (1,1) double = NaN  % Mean |f_PLL - f_FFT| instantaneous frequency error (Hz)
+        pll_lock_ratio    (1,1) double = NaN   % Fraction of slices locked within pll_freq_lock_tol_hz
+        pll_result        struct = struct()    % Full output of BandwidthTracker.compute_pll_phase_lock
+
         % Lobe information
         macro_lobes struct = struct()      % All detected macro lobes
         dom_lobe    struct = struct()      % Dominant lobe struct

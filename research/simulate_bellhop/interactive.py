@@ -4,7 +4,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.widgets import Slider, Button
 from scipy.signal import spectrogram
 
-from bandwidth_tracker import analyze_signal_bandwidth
+from bandwidth_tracker import analyze_signal_bandwidth, compute_pll_phase_lock
 
 # ==============================================================================
 # Modern Dark Sonar / Acoustic Dashboard Theme
@@ -21,6 +21,7 @@ THEME = {
     "accent_coral": "#fb7185",
     "accent_amber": "#f59e0b",
     "accent_mint": "#38e08c",
+    "accent_violet": "#c084fc",
     "slider_track": "#1e293b",
 }
 
@@ -41,13 +42,14 @@ plt.rcParams.update({
 
 
 # ==============================================================================
-# Core Interactive Acoustic Simulation + Watershed Bandwidth Analysis
+# Core Interactive Acoustic Simulation + Watershed Bandwidth + PLL Phase Lock
 # ==============================================================================
 def run_interactive_simulation(tx_depth, rx_depth, f0, wind_speed, rx_range):
     """
     Synthesizes the received hydrophone signal, computes geometric eigenray
-    diagnostics, and runs the `research-clean` Watershed Bandwidth & Stability
-    pipeline (`SpectralEngine` + `BandwidthTracker`).
+    diagnostics, runs the `research-clean` Watershed Bandwidth & Stability
+    pipeline, and computes Digital PLL Phase Lock & Synchronization (Mean
+    Resultant Length R).
     """
     fs = 2000.0      # Sampling frequency (Hz)
     duration = 20.0  # Signal duration (seconds)
@@ -110,6 +112,9 @@ def run_interactive_simulation(tx_depth, rx_depth, f0, wind_speed, rx_range):
     f_high_bw = min(fs / 2.0 - 10.0, f0 + 300.0)
     bw_res = analyze_signal_bandwidth(sig, fs, f_low=f_low_bw, f_high=f_high_bw)
 
+    # 6. Digital PLL Phase Lock & Circular Synchronization Analysis (ported from analyze_pll.py)
+    pll_res = compute_pll_phase_lock(sig, fs, f0)
+
     diagnostics = {
         "is_surface": is_surface,
         "wave_rms": wave_rms,
@@ -119,7 +124,7 @@ def run_interactive_simulation(tx_depth, rx_depth, f0, wind_speed, rx_range):
         "L_dir": float(L_dir),
         "L_surf": float(L_surf),
     }
-    return t, sig, diagnostics, bw_res
+    return t, sig, diagnostics, bw_res, pll_res
 
 
 # ==============================================================================
@@ -134,45 +139,49 @@ def build_dashboard():
         "range": 1000.0,
     }
 
-    fig = plt.figure(figsize=(14.8, 9.0))
-    fig.canvas.manager.set_window_title("Underwater Acoustic Multipath, Doppler & Watershed Bandwidth Simulator")
+    fig = plt.figure(figsize=(16.2, 9.2))
+    fig.canvas.manager.set_window_title(
+        "Underwater Acoustic Multipath, Doppler, Watershed Bandwidth & PLL Phase Lock Simulator"
+    )
 
     # Dashboard title & live telemetry banner
     fig.text(
         0.04, 0.958,
-        "UNDERWATER ACOUSTIC PROPAGATION, DOPPLER & WATERSHED BANDWIDTH SIMULATOR",
+        "UNDERWATER ACOUSTIC PROPAGATION, WATERSHED BANDWIDTH & PLL PHASE LOCK SIMULATOR",
         fontsize=12.5, fontweight="bold", color=THEME["text_primary"]
     )
     status_badge = fig.text(
-        0.04, 0.924, "",
-        fontsize=9.0, fontweight="bold", color=THEME["accent_teal"],
+        0.045, 0.924, "",
+        fontsize=8.8, fontweight="bold", color=THEME["accent_teal"],
         bbox=dict(boxstyle="round,pad=0.35", facecolor=THEME["bg_control"], edgecolor=THEME["border"], lw=1.0)
     )
     telemetry_text = fig.text(
-        0.37, 0.924, "",
-        fontsize=8.6, color=THEME["text_muted"],
+        0.375, 0.924, "",
+        fontsize=8.5, color=THEME["text_muted"],
         bbox=dict(boxstyle="round,pad=0.35", facecolor=THEME["bg_panel"], edgecolor=THEME["border"], lw=1.0)
     )
 
     # Main plot grid:
-    # Row 0: [Time-Domain Waveform | Watershed Bandwidth Slice | 2D Eigenray Geometry]
-    # Row 1: [Narrowband Spectrogram with Watershed BW Bounds (spans all 3 cols) + Colorbar]
+    # Row 0: [Time-Domain | Watershed Bandwidth | 2D Eigenray Geometry | PLL Phase Lock & Sync R]
+    # Placing PLL Phase Lock in column 3 puts its twin right y-axis cleanly on the outer right margin.
+    # Row 1: [Narrowband Spectrogram with Watershed BW Bounds (spans all 4 cols) + Colorbar]
     gs = GridSpec(
-        2, 4, figure=fig,
+        2, 5, figure=fig,
         height_ratios=[1.0, 1.32],
-        width_ratios=[1.0, 1.15, 1.0, 0.035],
-        left=0.05, right=0.95, top=0.87, bottom=0.29,
-        hspace=0.38, wspace=0.24
+        width_ratios=[0.95, 1.05, 0.98, 1.08, 0.032],
+        left=0.045, right=0.945, top=0.87, bottom=0.29,
+        hspace=0.38, wspace=0.27
     )
 
     ax_sig = fig.add_subplot(gs[0, 0])
     ax_bw = fig.add_subplot(gs[0, 1])
     ax_geo = fig.add_subplot(gs[0, 2])
-    ax_spec = fig.add_subplot(gs[1, 0:3])
-    ax_cbar = fig.add_subplot(gs[1, 3])
+    ax_pll = fig.add_subplot(gs[0, 3])
+    ax_spec = fig.add_subplot(gs[1, 0:4])
+    ax_cbar = fig.add_subplot(gs[1, 4])
 
     # Initial simulation run
-    t, sig, diag, bw_res = run_interactive_simulation(
+    t, sig, diag, bw_res, pll_res = run_interactive_simulation(
         defaults["tx_depth"], defaults["rx_depth"],
         defaults["freq"], defaults["wind"], defaults["range"]
     )
@@ -182,52 +191,89 @@ def build_dashboard():
     # --- Panel 1: Time-Domain Signal Envelope (First 0.20 sec) ---
     n_samples_view = 400
     (line_sig,) = ax_sig.plot(t[:n_samples_view], sig[:n_samples_view], color=THEME["accent_cyan"], lw=1.15)
-    ax_sig.set_title("Time-Domain Waveform (First 0.20 s)", fontsize=10.0, fontweight="bold", pad=7)
+    ax_sig.set_title("Time-Domain (First 0.20 s)", fontsize=9.8, fontweight="bold", pad=7)
     ax_sig.set_xlabel("Time [s]")
-    ax_sig.set_ylabel("Normalized Amplitude")
+    ax_sig.set_ylabel("Normalized Amp.")
     ax_sig.set_xlim(0, t[n_samples_view - 1])
     ax_sig.set_ylim(-3.2, 3.2)
     ax_sig.grid(True)
 
     # --- Panel 2: Watershed Peak & Base Bandwidth Detection (Midpoint 500 ms Slice) ---
-    (line_bw_fft,) = ax_bw.plot([], [], color="#d1d9e6", lw=1.3, label="FFT Slice (Hann @ Midpoint)")
-    line_bw_floor = ax_bw.axhline(0.0, color=THEME["accent_amber"], lw=1.2, ls=":", label="Local Noise Floor")
+    (line_bw_fft,) = ax_bw.plot([], [], color="#d1d9e6", lw=1.3, label="FFT Slice (Hann)")
+    line_bw_floor = ax_bw.axhline(0.0, color=THEME["accent_amber"], lw=1.2, ls=":", label="Noise Floor")
     line_bw_l = ax_bw.axvline(defaults["freq"], color=THEME["accent_coral"], lw=1.1, ls="--", alpha=0.8)
     line_bw_r = ax_bw.axvline(defaults["freq"], color=THEME["accent_coral"], lw=1.1, ls="--", alpha=0.8)
     (pt_bw_bounds,) = ax_bw.plot(
-        [], [], "d", markersize=7,
+        [], [], "d", markersize=6.5,
         markerfacecolor=THEME["accent_coral"], markeredgecolor=THEME["accent_coral"],
-        label="Watershed Base Bounds"
+        label="Watershed Bounds"
     )
     (pt_bw_peak,) = ax_bw.plot(
-        [], [], "v", markersize=8,
+        [], [], "v", markersize=7.5,
         markerfacecolor=THEME["accent_mint"], markeredgecolor="none",
         label="Dominant Peak"
     )
-    ax_bw.set_title("Watershed Bandwidth Detection", fontsize=10.0, fontweight="bold", pad=7)
+    ax_bw.set_title("Watershed Bandwidth", fontsize=9.8, fontweight="bold", pad=7)
     ax_bw.set_xlabel("Frequency [Hz]")
     ax_bw.set_ylabel("Magnitude [dB]")
     ax_bw.grid(True)
-    ax_bw.legend(loc="upper right", frameon=True, facecolor=THEME["bg_fig"], edgecolor=THEME["border"], fontsize=7.5)
+    ax_bw.legend(loc="upper right", frameon=True, facecolor=THEME["bg_fig"], edgecolor=THEME["border"], fontsize=7.0)
 
-    # --- Panel 3: Live 2D Acoustic Ray Geometry Cross-Section ---
+    # --- Panel 3: Digital PLL Phase Lock & Sliding Synchronization R(t) ---
+    ds_pll = 20  # Downsample factor for fast, crisp 20s phase plotting
+    t_pll_ds = t[::ds_pll]
+    (line_pll_phase,) = ax_pll.plot(
+        t_pll_ds, pll_res["phase_error"][::ds_pll],
+        color=THEME["accent_violet"], lw=1.0, alpha=0.85, label=r"Phase Error $\Delta\phi(t)$"
+    )
+    ax_pll.axhline(0.0, color=THEME["text_muted"], lw=0.7, ls=":")
+    ax_pll.set_xlim(0, t[-1])
+    ax_pll.set_ylim(-np.pi - 0.2, np.pi + 0.2)
+    ax_pll.set_yticks([-np.pi, 0.0, np.pi])
+    ax_pll.set_yticklabels([r"$-\pi$", "0", r"$+\pi$"])
+    ax_pll.set_xlabel("Time [s]")
+    ax_pll.set_ylabel(r"Phase Error $\Delta\phi$ [rad]", color=THEME["accent_violet"])
+    ax_pll.tick_params(axis="y", labelcolor=THEME["accent_violet"])
+    ax_pll.grid(True)
+
+    ax_pll_r = ax_pll.twinx()
+    ax_pll_r.spines["top"].set_visible(False)
+    ax_pll_r.spines["right"].set_edgecolor(THEME["border"])
+    (line_pll_sync,) = ax_pll_r.plot(
+        t_pll_ds, pll_res["plv_sliding"][::ds_pll],
+        color=THEME["accent_mint"], lw=1.6, label="Sync Index $R(t)$"
+    )
+    ax_pll_r.set_ylim(-0.05, 1.08)
+    ax_pll_r.set_ylabel("Sync $R$ [0–1]", color=THEME["accent_mint"], fontsize=8.5)
+    ax_pll_r.tick_params(axis="y", labelcolor=THEME["accent_mint"], labelsize=8.0)
+    ax_pll.set_title("PLL Phase Lock & Sync", fontsize=9.8, fontweight="bold", pad=7)
+
+    # Combined legend for dual-axis PLL plot
+    lines_pll = [line_pll_phase, line_pll_sync]
+    labels_pll = [l.get_label() for l in lines_pll]
+    ax_pll.legend(
+        lines_pll, labels_pll, loc="lower right",
+        frameon=True, facecolor=THEME["bg_fig"], edgecolor=THEME["border"], fontsize=7.0
+    )
+
+    # --- Panel 4: Live 2D Acoustic Ray Geometry Cross-Section ---
     max_bathy = 105.0
     (line_wave_surf,) = ax_geo.plot([], [], color=THEME["accent_cyan"], lw=1.4, label="Rough Sea Surface")
     (line_ray_dir,) = ax_geo.plot([], [], color=THEME["accent_teal"], lw=1.8, ls="-", label="Direct Ray")
-    (line_ray_surf,) = ax_geo.plot([], [], color=THEME["accent_amber"], lw=1.5, ls="--", label="Surface-Reflected Ray")
-    (pt_tx,) = ax_geo.plot([], [], marker="o", markersize=8, color=THEME["accent_coral"], label="Source (Tx)")
-    (pt_rx,) = ax_geo.plot([], [], marker="s", markersize=7, color=THEME["accent_cyan"], label="Hydrophone (Rx)")
+    (line_ray_surf,) = ax_geo.plot([], [], color=THEME["accent_amber"], lw=1.5, ls="--", label="Surface Bounce")
+    (pt_tx,) = ax_geo.plot([], [], marker="o", markersize=7.5, color=THEME["accent_coral"], label="Source (Tx)")
+    (pt_rx,) = ax_geo.plot([], [], marker="s", markersize=6.5, color=THEME["accent_cyan"], label="Hydrophone (Rx)")
 
     ax_geo.axhspan(100.0, max_bathy, color="#27201c", alpha=0.8)
     ax_geo.axhline(100.0, color="#a16207", lw=1.2, ls=":")
-    ax_geo.set_title("2D Eigenray Propagation Geometry", fontsize=10.0, fontweight="bold", pad=7)
+    ax_geo.set_title("2D Eigenray Geometry", fontsize=9.8, fontweight="bold", pad=7)
     ax_geo.set_xlabel("Horizontal Range [m]")
     ax_geo.set_ylabel("Depth [m]")
     ax_geo.set_ylim(max_bathy, -6.0)
     ax_geo.grid(True)
-    ax_geo.legend(loc="lower right", frameon=True, facecolor=THEME["bg_fig"], edgecolor=THEME["border"], fontsize=7.5)
+    ax_geo.legend(loc="lower right", frameon=True, facecolor=THEME["bg_fig"], edgecolor=THEME["border"], fontsize=7.0)
 
-    # --- Panel 4: Narrowband Spectrogram with Watershed Bandwidth Bounds ---
+    # --- Panel 5: Narrowband Spectrogram with Watershed Bandwidth Bounds ---
     spec_mesh = ax_spec.pcolormesh(
         t_spec, f_spec, Sxx_dB,
         shading="gouraud", cmap="magma", vmin=-22, vmax=6
@@ -294,7 +340,7 @@ def build_dashboard():
 
     fig.text(
         0.25, 0.035,
-        "Tip: Drag sliders or click a preset on the right to inspect real-time Watershed Bandwidth & Jain's Fairness metrics.",
+        "Tip: Drag sliders or click a preset on the right to compare Watershed Bandwidth, Jain's Fairness, and PLL Phase Synchronization R.",
         fontsize=8.5, color=THEME["text_muted"]
     )
 
@@ -304,7 +350,7 @@ def build_dashboard():
     updating_preset = False
 
     def refresh_views(d, rx_d, f, w, r):
-        _, sig_new, diag_new, bw_new = run_interactive_simulation(d, rx_d, f, w, r)
+        _, sig_new, diag_new, bw_new, pll_new = run_interactive_simulation(d, rx_d, f, w, r)
         f_s, t_s, S_new = spectrogram(sig_new, fs=2000.0, nperseg=512, noverlap=384)
         S_new_dB = 10 * np.log10(S_new + 1e-12)
 
@@ -316,7 +362,7 @@ def build_dashboard():
         line_sig.set_ydata(sig_new[:n_samples_view])
         line_sig.set_color(accent)
 
-        # 2. Update Watershed Bandwidth Slice plot (matching research-clean Visualizer Figure 2)
+        # 2. Update Watershed Bandwidth Slice plot
         if bw_new["found"] and len(bw_new["f_segment"]) > 0:
             f_seg = bw_new["f_segment"]
             mag_seg_db = 20.0 * np.log10(bw_new["mag_segment"] + eps)
@@ -340,11 +386,20 @@ def build_dashboard():
             ax_bw.set_ylim(min(np.min(mag_seg_db), nf_db) - 5.0, pk_db + 6.0)
             stab = bw_new["stability"]
             ax_bw.set_title(
-                f"Watershed BW: {bw_new['main_bw']:.1f} Hz  (Mean: {stab['mean_bw']:.1f}±{stab['std_bw']:.1f} Hz)",
-                fontsize=9.8, fontweight="bold", pad=7
+                f"Watershed BW: {bw_new['main_bw']:.1f} Hz (Mean {stab['mean_bw']:.1f}±{stab['std_bw']:.1f})",
+                fontsize=9.4, fontweight="bold", pad=7
             )
 
-        # 3. Update 2D Ray Geometry plot
+        # 3. Update Digital PLL Phase Lock & Synchronization plot
+        line_pll_phase.set_ydata(pll_new["phase_error"][::ds_pll])
+        line_pll_sync.set_ydata(pll_new["plv_sliding"][::ds_pll])
+        line_pll_sync.set_color(THEME["accent_coral"] if is_surf else THEME["accent_mint"])
+        ax_pll.set_title(
+            f"PLL Phase Lock  |  Sync R: {pll_new['mean_plv']:.2f}  ($\\sigma_\\phi$: {pll_new['phase_std_rad']:.2f} rad)",
+            fontsize=9.4, fontweight="bold", pad=7
+        )
+
+        # 4. Update 2D Ray Geometry plot
         x_r = np.linspace(0, r, 150)
         visual_wave = -2.2 * diag_new["wave_rms"] * np.sin(2 * np.pi * x_r / max(r / 8.0, 30.0))
         line_wave_surf.set_data(x_r, visual_wave)
@@ -356,7 +411,7 @@ def build_dashboard():
         pt_rx.set_data([r], [rx_d])
         ax_geo.set_xlim(-0.04 * r, 1.06 * r)
 
-        # 4. Update Spectrogram mesh and Watershed BW lines
+        # 5. Update Spectrogram mesh and Watershed BW lines
         spec_mesh.set_array(S_new_dB.ravel())
         f0_ref_line.set_ydata([f, f])
         if bw_new["found"]:
@@ -364,25 +419,25 @@ def build_dashboard():
             spec_bw_high_line.set_ydata([bw_new["r_freq"], bw_new["r_freq"]])
         ax_spec.set_ylim(f - 40, f + 40)
 
-        # 5. Update Status Badge & Live Telemetry
+        # 6. Update Status Badge & Live Telemetry
         if is_surf:
-            mode_str = f"SURFACE VESSEL (Depth {d:.1f} m)  •  Broadened FM Smearing"
+            mode_str = f"SURFACE VESSEL (Depth {d:.1f} m)  •  Phase Unlocked / FM Smeared"
             status_badge.set_color(THEME["accent_coral"])
         else:
-            mode_str = f"SUBMERGED VEHICLE (Depth {d:.1f} m)  •  Coherent Narrowband Tonal"
+            mode_str = f"SUBMERGED VEHICLE (Depth {d:.1f} m)  •  Phase Locked Coherent Tonal"
             status_badge.set_color(THEME["accent_teal"])
         status_badge.set_text(mode_str)
 
         stab = bw_new["stability"]
         telemetry_text.set_text(
             f"Watershed BW: {bw_new['main_bw']:.1f} Hz (Mean {stab['mean_bw']:.1f}±{stab['std_bw']:.1f} Hz)  |  "
-            f"Macro-Lobe: {bw_new['dom_lobe']['bandwidth']:.1f} Hz  |  "
             f"Fairness: {stab['fairness']:.3f}  |  TiB: {stab['tib']*100:.0f}%  |  "
+            f"PLL Sync R: {pll_new['mean_plv']:.2f} (Global {pll_new['global_r']:.2f})  |  "
             f"Rayleigh g: {diag_new['rayleigh_g']:.2f}"
         )
 
         ax_spec.set_title(
-            f"Narrowband Spectrogram  —  Center Freq: {f:.0f} Hz  |  Watershed Bounds: [{bw_new['l_freq']:.1f}, {bw_new['r_freq']:.1f}] Hz  |  Range: {r:.0f} m",
+            f"Narrowband Spectrogram  —  Center Freq: {f:.0f} Hz  |  Watershed Bounds: [{bw_new['l_freq']:.1f}, {bw_new['r_freq']:.1f}] Hz  |  PLL Sync R: {pll_new['mean_plv']:.2f}",
             fontsize=10.2, fontweight="bold", color=THEME["text_primary"], pad=7
         )
 

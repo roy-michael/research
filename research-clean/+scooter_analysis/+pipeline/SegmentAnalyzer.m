@@ -54,7 +54,11 @@ classdef SegmentAnalyzer
             else
                 sem_bw = NaN;
             end
-            
+
+            % Phase Lock (Digital PLL) & Instantaneous Frequency Verification
+            pll_out = BandwidthTracker.compute_pll_phase_lock( ...
+                segment_sig, fs, dom_lobe, cfg_bw, slice_bw);
+
             % Populate result
             sr.dom_freq = dom_lobe.peak_freq;
             sr.peak_psd = dom_lobe.peak_psd;
@@ -65,6 +69,15 @@ classdef SegmentAnalyzer
             sr.psd_db = psd_db;
             sr.f_grid = f_grid;
             sr.slice_bw = slice_bw;
+            sr.pll_mean_plv       = pll_out.mean_plv;
+            sr.pll_global_r       = pll_out.global_r;
+            sr.pll_phase_std      = pll_out.phase_std_rad;
+            sr.pll_freq_mean      = pll_out.inst_freq_mean_hz;
+            sr.pll_freq_std       = pll_out.inst_freq_std_hz;
+            sr.pll_freq_dev       = pll_out.inst_freq_dev_hz;
+            sr.pll_freq_verif_err = pll_out.freq_verif_err_hz;
+            sr.pll_lock_ratio     = pll_out.lock_ratio;
+            sr.pll_result         = pll_out;
             sr.macro_lobes = macro_lobes;
             sr.dom_lobe = dom_lobe;
             sr.ocean_floor = ocean_floor_smooth;

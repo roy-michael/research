@@ -13,8 +13,8 @@ Implements:
 
 import numpy as np
 from scipy.interpolate import PchipInterpolator
-from scipy.ndimage import gaussian_filter1d, median_filter, minimum_filter1d
-from scipy.signal import welch
+from scipy.ndimage import gaussian_filter1d, median_filter, minimum_filter1d, uniform_filter1d
+from scipy.signal import butter, filtfilt, welch
 from scipy.signal.windows import hamming, hann
 
 
@@ -515,4 +515,106 @@ def analyze_signal_bandwidth(signal, fs, f_low=0.0, f_high=None, cfg=None):
         "stability": stability,
     })
     return center_out
+
+
+def compute_pll_phase_lock(signal, fs, f_center, bandpass_margin=80.0, loop_bw_hz=18.0, window_sec=1.5):
+    """
+    Port of the Digital Phase-Locked Loop (PLL) & Circular Fairness (Mean Resultant Length R)
+    pipeline from `research/python/analysis/analyze_pll.py` and `analyze_fairness.py`.
+
+    Tracks the carrier phase around `f_center` using a 2nd-order PI digital PLL
+    (damping factor zeta = 0.707, noise bandwidth Bn = `loop_bw_hz`) and computes:
+      - `phase_error`: Wrapped carrier phase deviation in [-pi, pi] relative to reference `f_center`
+      - `freq_out`: Instantaneous PLL tracked frequency (Hz)
+      - `plv_sliding`: Sliding-window Phase Locking Value / Mean Resultant Length R(t) in [0, 1]
+      - `mean_plv`: Mean sliding PLV R across the signal
+      - `global_r`: Global Circular Fairness Index |mean(exp(1j * phase_error))|
+      - `phase_std_rad`: Circular standard deviation of the phase error (radians)
+    """
+    sig = np.asarray(signal, dtype=float).ravel()
+    n_samples = len(sig)
+    if n_samples < 32:
+        return {
+            "phase_error": np.zeros(n_samples),
+            "freq_out": np.full(n_samples, f_center),
+            "plv_sliding": np.zeros(n_samples),
+            "mean_plv": 0.0,
+            "global_r": 0.0,
+            "phase_std_rad": np.nan,
+        }
+
+    # 1. Zero-phase 4th-order Butterworth bandpass filter around f_center
+    nyq = 0.5 * fs
+    low = max(10.0, f_center - bandpass_margin) / nyq
+    high = min(nyq - 10.0, f_center + bandpass_margin) / nyq
+    b, a = butter(4, [low, high], btype="band")
+    filtered = filtfilt(b, a, sig)
+    peak_abs = np.max(np.abs(filtered))
+    if peak_abs > 1e-8:
+        filtered = filtered / peak_abs
+
+    # 2. Second-order Digital PLL loop filter gains (as in analyze_pll.py)
+    zeta = 0.707
+    wn = 2.0 * np.pi * loop_bw_hz / (zeta + 1.0 / (4.0 * zeta))
+    kp = (2.0 * zeta * wn) / fs
+    ki = (wn * wn) / (fs * fs)
+
+    w_center = 2.0 * np.pi * f_center / fs
+    max_dev = 2.0 * np.pi * 60.0 / fs
+
+    phase_error = np.empty(n_samples, dtype=float)
+    freq_out = np.empty(n_samples, dtype=float)
+
+    phase = 0.0
+    ref_phase = 0.0
+    freq_integrator = 0.0
+    sin_fn = np.sin
+    two_pi = 2.0 * np.pi
+    pi_val = np.pi
+
+    for i in range(n_samples):
+        pe = -filtered[i] * sin_fn(phase)
+        freq_integrator += ki * pe
+        if freq_integrator > max_dev:
+            freq_integrator = max_dev
+        elif freq_integrator < -max_dev:
+            freq_integrator = -max_dev
+
+        freq_ctrl = kp * pe + freq_integrator
+        if freq_ctrl > max_dev:
+            freq_ctrl = max_dev
+        elif freq_ctrl < -max_dev:
+            freq_ctrl = -max_dev
+
+        phase += w_center + freq_ctrl
+        ref_phase += w_center
+
+        # Wrapped phase difference relative to the ideal unmodulated carrier
+        phase_error[i] = (phase - ref_phase + pi_val) % two_pi - pi_val
+        freq_out[i] = (w_center + freq_ctrl) * fs / two_pi
+
+    # Remove mean constant phase offset so locked carrier centers around 0 rad
+    unit_phasors = np.exp(1j * phase_error)
+    mean_phasor = np.mean(unit_phasors)
+    mean_angle = np.angle(mean_phasor)
+    phase_error_centered = (phase_error - mean_angle + pi_val) % two_pi - pi_val
+
+    # 3. Sliding-window Mean Resultant Length R(t) (Circular Fairness Index) without boundary roll-off
+    win_samples = max(16, int(round(window_sec * fs)))
+    cos_smooth = uniform_filter1d(np.cos(phase_error_centered), size=win_samples, mode="nearest")
+    sin_smooth = uniform_filter1d(np.sin(phase_error_centered), size=win_samples, mode="nearest")
+    plv_sliding = np.hypot(cos_smooth, sin_smooth)
+
+    mean_plv = float(np.mean(plv_sliding))
+    global_r = float(np.abs(mean_phasor))
+    phase_std_rad = float(np.std(phase_error_centered))
+
+    return {
+        "phase_error": phase_error_centered,
+        "freq_out": freq_out,
+        "plv_sliding": plv_sliding,
+        "mean_plv": mean_plv,
+        "global_r": global_r,
+        "phase_std_rad": phase_std_rad,
+    }
 

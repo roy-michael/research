@@ -781,6 +781,209 @@ classdef Visualizer
         end
 
         % =================================================================
+        % Figure 4-P: Phase Lock (Digital PLL) & Instantaneous Frequency Stability
+        % =================================================================
+
+        function render_phase_lock_distribution(results, cfg)
+            if nargin < 2
+                cfg = struct();
+            elseif ischar(cfg) || isstring(cfg)
+                cfg = struct('output_dir', char(cfg));
+            end
+            num_data = length(results);
+            if num_data < 1
+                return;
+            end
+
+            has_data = false;
+            for k = 1:num_data
+                if isfield(results{k}, 'pll_result')
+                    p = results{k}.pll_result;
+                    if (isfield(p, 'all_slice_plv') && ~isempty(p.all_slice_plv)) || ...
+                       (isfield(p, 'all_plvs') && ~isempty(p.all_plvs))
+                        has_data = true;
+                        break;
+                    end
+                end
+            end
+            if ~has_data
+                fprintf('[Visualizer] No PLL phase lock tracking data available for Figure 4-P.\n');
+                return;
+            end
+
+            fig = figure('Name', 'Figure 4-P: Digital PLL Phase Lock & Instantaneous Frequency Stability', ...
+                'Color', [0.08 0.11 0.17], 'Position', [50, 160, 1800, 500]);
+
+            % --- Subplot 1: Wrapped Phase Error Distribution [-pi, pi] ---
+            ax1 = subplot(1, 4, 1);
+            hold(ax1, 'on');
+
+            edges = linspace(-pi, pi, 73);
+            centers = (edges(1:end-1) + edges(2:end)) / 2;
+
+            for k = 1:num_data
+                p_samples = [];
+                if isfield(results{k}, 'pll_result')
+                    p = results{k}.pll_result;
+                    if isfield(p, 'phase_error') && ~isempty(p.phase_error)
+                        p_samples = p.phase_error(:);
+                    elseif isfield(p, 'phase_samples') && ~isempty(p.phase_samples)
+                        p_samples = p.phase_samples(:);
+                    elseif isfield(p, 'all_slice_mean_phases') && ~isempty(p.all_slice_mean_phases)
+                        p_samples = p.all_slice_mean_phases(:);
+                    elseif isfield(p, 'all_mean_phases') && ~isempty(p.all_mean_phases)
+                        p_samples = p.all_mean_phases(:);
+                    end
+                end
+                p_samples = p_samples(isfinite(p_samples));
+                if ~isempty(p_samples)
+                    counts = histcounts(p_samples, edges, 'Normalization', 'pdf');
+                    [c, ec] = Visualizer.getDatasetColor(results{k}.meta.name, k);
+                    fill(ax1, [centers, fliplr(centers)], [counts, zeros(size(counts))], c, ...
+                        'FaceAlpha', 0.35, 'EdgeColor', ec, 'LineWidth', 1.6, ...
+                        'DisplayName', results{k}.meta.name);
+                end
+            end
+
+            yline(ax1, 1 / (2*pi), '--', 'Color', [0.75 0.78 0.85], 'LineWidth', 1.2, ...
+                'DisplayName', 'Uniform Unlocked (1/2π)');
+            xlim(ax1, [-pi, pi]);
+            Visualizer.applyAxesStyle(ax1, 'Wrapped Carrier Phase Error PDF', 'Phase Error \Delta\phi (rad)', 'Probability Density');
+            lgd1 = legend(ax1, 'Location', 'best');
+            Visualizer.styleLegend(lgd1);
+
+            % --- Subplot 2: Phase Locking Value (Circular Sync R) vs Window Size N ---
+            ax2 = subplot(1, 4, 2);
+            hold(ax2, 'on');
+
+            line_styles = {'-', '--', '-.', ':'};
+            markers = {'o', 's', '^', 'd', 'v', '>', '<', 'p', 'h'};
+            for k = 1:num_data
+                win_sizes = []; plv_curve = [];
+                if isfield(results{k}, 'pll_result')
+                    p = results{k}.pll_result;
+                    if isfield(p, 'fairness_window_sec'); win_sizes = p.fairness_window_sec; end
+                    if isfield(p, 'all_plv_stability')
+                        plv_curve = p.all_plv_stability;
+                    elseif isfield(p, 'all_plv_vs_win')
+                        plv_curve = p.all_plv_vs_win;
+                    end
+                end
+                if ~isempty(win_sizes) && ~isempty(plv_curve)
+                    jitter = (k-1) * 0.003;
+                    [c, ~] = Visualizer.getDatasetColor(results{k}.meta.name, k);
+                    ls = line_styles{mod(k-1, length(line_styles))+1};
+                    mk = markers{mod(k-1, length(markers))+1};
+                    lw = max(1.2, 2.5 - 0.3*k);
+                    plot(ax2, win_sizes, plv_curve + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', lw, 'MarkerSize', 5, ...
+                        'DisplayName', results{k}.meta.name);
+                end
+            end
+            ylim(ax2, [0, 1.05]);
+            Visualizer.applyAxesStyle(ax2, 'Phase Lock Stability (Circular Sync R)', 'Window Size N (seconds)', 'Mean Phase Locking Value (R)');
+            lgd2 = legend(ax2, 'Location', 'best');
+            Visualizer.styleLegend(lgd2);
+
+            % --- Subplot 3: Phase Concentration Stability (1 - H_phi_norm) ---
+            ax3 = subplot(1, 4, 3);
+            hold(ax3, 'on');
+
+            for k = 1:num_data
+                win_sizes = []; ent = [];
+                if isfield(results{k}, 'pll_result')
+                    p = results{k}.pll_result;
+                    if isfield(p, 'fairness_window_sec'); win_sizes = p.fairness_window_sec; end
+                    if isfield(p, 'all_phase_entropy')
+                        ent = p.all_phase_entropy;
+                    elseif isfield(p, 'all_phase_ent_vs_win')
+                        ent = p.all_phase_ent_vs_win;
+                    end
+                end
+                if ~isempty(win_sizes) && ~isempty(ent)
+                    jitter = (k-1) * 0.003;
+                    [c, ~] = Visualizer.getDatasetColor(results{k}.meta.name, k);
+                    ls = line_styles{mod(k-1, length(line_styles))+1};
+                    mk = markers{mod(k-1, length(markers))+1};
+                    lw = max(1.2, 2.5 - 0.3*k);
+                    plot(ax3, win_sizes, 1 - ent + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', lw, 'MarkerSize', 5, ...
+                        'DisplayName', results{k}.meta.name);
+                end
+            end
+            ylim(ax3, [0, 1.05]);
+            Visualizer.applyAxesStyle(ax3, 'Phase Concentration Stability', 'Window Size N (seconds)', 'Stability (1 - H_{\phi,norm})');
+            lgd3 = legend(ax3, 'Location', 'best');
+            Visualizer.styleLegend(lgd3);
+
+            % --- Subplot 4: Instantaneous Frequency Stability Fairness ---
+            ax4 = subplot(1, 4, 4);
+            hold(ax4, 'on');
+
+            for k = 1:num_data
+                win_sizes = []; fair = [];
+                if isfield(results{k}, 'pll_result')
+                    p = results{k}.pll_result;
+                    if isfield(p, 'fairness_window_sec'); win_sizes = p.fairness_window_sec; end
+                    if isfield(p, 'all_freq_lock_fairness')
+                        fair = p.all_freq_lock_fairness;
+                    elseif isfield(p, 'all_freq_lock_vs_win')
+                        fair = p.all_freq_lock_vs_win;
+                    end
+                end
+                if ~isempty(win_sizes) && ~isempty(fair)
+                    jitter = (k-1) * 0.003;
+                    [c, ~] = Visualizer.getDatasetColor(results{k}.meta.name, k);
+                    ls = line_styles{mod(k-1, length(line_styles))+1};
+                    mk = markers{mod(k-1, length(markers))+1};
+                    lw = max(1.2, 2.5 - 0.3*k);
+                    plot(ax4, win_sizes, fair + jitter, 'LineStyle', ls, 'Marker', mk, 'Color', c, 'LineWidth', lw, 'MarkerSize', 5, ...
+                        'DisplayName', results{k}.meta.name);
+                end
+            end
+            ylim(ax4, [0, 1.05]);
+            Visualizer.applyAxesStyle(ax4, 'Inst. Frequency Lock Fairness', 'Window Size N (seconds)', 'Freq Lock Fairness Index');
+            lgd4 = legend(ax4, 'Location', 'best');
+            Visualizer.styleLegend(lgd4);
+
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                if ~exist(cfg.output_dir, 'dir')
+                    mkdir(cfg.output_dir);
+                end
+                exportgraphics(ax1, fullfile(cfg.output_dir, 'Fig4P_Subplot1_PhaseError_PDF.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+                exportgraphics(ax2, fullfile(cfg.output_dir, 'Fig4P_Subplot2_PLV_Stability.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+                exportgraphics(ax3, fullfile(cfg.output_dir, 'Fig4P_Subplot3_Phase_Entropy.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+                exportgraphics(ax4, fullfile(cfg.output_dir, 'Fig4P_Subplot4_Freq_Lock_Fairness.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+                exportgraphics(fig, fullfile(cfg.output_dir, 'Fig4P_Phase_Lock_Distribution.png'), ...
+                    'Resolution', 300, 'BackgroundColor', 'current');
+            end
+        end
+
+        function render_binned_phase_lock_distribution(results, cfg, bin_dur_sec, error_type)
+            if nargin < 2
+                cfg = struct();
+            elseif ischar(cfg) || isstring(cfg)
+                cfg = struct('output_dir', char(cfg));
+            end
+            if nargin < 3 || isempty(bin_dur_sec)
+                bin_dur_sec = 60.0;
+            end
+            if nargin < 4 || isempty(error_type)
+                error_type = 'std';
+            end
+            out_path = '';
+            if isfield(cfg, 'output_dir') && ~isempty(cfg.output_dir)
+                if ~exist(cfg.output_dir, 'dir')
+                    mkdir(cfg.output_dir);
+                end
+                out_path = fullfile(cfg.output_dir, 'Fig4P_Binned_PhaseLock_Summary.png');
+            end
+            scooter_analysis.reporting.PlotGenerator.binnedPhaseLockDistribution(results, out_path, bin_dur_sec, error_type);
+        end
+
+        % =================================================================
         % Figure 5: Outlier Signal Segments
         % =================================================================
 
@@ -942,6 +1145,23 @@ classdef Visualizer
                     fprintf('  ----------------------------------------------------------\n');
                     fprintf('  WATERSHED MAIN PEAK BANDWIDTH (250ms SLICES):\n');
                     fprintf('    MAIN PEAK       %0.2f Hz (Mag: %0.2f dB) | Base BW: %0.2f Hz\n', h.main_f, 20*log10(h.main_mag+eps), h.main_bw);
+                end
+
+                if isfield(r, 'pll_result') && ~isempty(r.pll_result)
+                    p = r.pll_result;
+                    fprintf('  ----------------------------------------------------------\n');
+                    fprintf('  DIGITAL PLL PHASE LOCK & INSTANTANEOUS FREQUENCY VERIFICATION:\n');
+                    if isfield(p, 'mean_plv') && isfinite(p.mean_plv)
+                        fprintf('    Mean Slice PLV (R):         %0.4f  | Global R: %0.4f\n', p.mean_plv, p.global_r);
+                        fprintf('    PLL Inst. Freq Mean ± SD:   %0.2f ± %0.2f Hz | Verif. Err |f_PLL - f_FFT|: %0.2f Hz\n', ...
+                            p.freq_mean, p.freq_std, p.freq_verif_err);
+                    elseif isfield(p, 'all_slice_plv') && ~isempty(p.all_slice_plv)
+                        fprintf('    Mean Slice PLV (R):         %0.4f ± %0.4f\n', ...
+                            mean(p.all_slice_plv, 'omitnan'), std(p.all_slice_plv, 'omitnan'));
+                        fprintf('    PLL Inst. Freq Spread SD:   %0.2f ± %0.2f Hz | Verif. Err |f_PLL - f_FFT|: %0.2f Hz\n', ...
+                            mean(p.all_slice_inst_freq_stds, 'omitnan'), std(p.all_slice_inst_freq_stds, 'omitnan'), ...
+                            mean(p.all_slice_freq_verif_errs, 'omitnan'));
+                    end
                 end
 
             end

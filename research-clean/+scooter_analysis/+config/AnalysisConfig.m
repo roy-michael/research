@@ -48,6 +48,13 @@ classdef AnalysisConfig
         bw_tib_tolerance_hz (1,1) double = 10
         bw_entropy_max_bins (1,1) double = 20   % Maximum histogram bins for adaptive Shannon entropy
 
+        % Phase Lock (Digital PLL) & Instantaneous Frequency Verification
+        pll_bandpass_margin_hz (1,1) double = 80.0   % Half-width of bandpass filter around dominant freq (Hz)
+        pll_loop_bw_hz         (1,1) double = 18.0   % Digital PLL noise bandwidth Bn (Hz)
+        pll_damping_zeta       (1,1) double = 0.707  % Digital PLL damping factor zeta
+        pll_max_freq_dev_hz    (1,1) double = 60.0   % Maximum instantaneous frequency deviation clamp (Hz)
+        pll_freq_lock_tol_hz   (1,1) double = 5.0    % Tolerance for instantaneous frequency lock ratio (Hz)
+
         % High-Pass Filter
         hp_cutoff        (1,1) double = 0        % High-pass filter cutoff (0 = auto, uses f_low)
         hp_order         (1,1) double = 4        % Butterworth filter order
@@ -77,6 +84,12 @@ classdef AnalysisConfig
             cfg_bw.bw_smooth_window = obj.bw_smooth_window;
             cfg_bw.twin_welch = obj.twin_welch;
             cfg_bw.tib_tolerance_hz = obj.bw_tib_tolerance_hz;
+            cfg_bw.entropy_max_bins = obj.bw_entropy_max_bins;
+            cfg_bw.pll_bandpass_margin_hz = obj.pll_bandpass_margin_hz;
+            cfg_bw.pll_loop_bw_hz = obj.pll_loop_bw_hz;
+            cfg_bw.pll_damping_zeta = obj.pll_damping_zeta;
+            cfg_bw.pll_max_freq_dev_hz = obj.pll_max_freq_dev_hz;
+            cfg_bw.pll_freq_lock_tol_hz = obj.pll_freq_lock_tol_hz;
         end
     end
 
