@@ -19,8 +19,8 @@ import scooter_analysis.pipeline.BatchAnalyzer
 import scooter_analysis.reporting.PlotGenerator
 import scooter_analysis.reporting.ReportGenerator
 
-% base_dir = 'C:\Users\Roy\Recordings';
-base_dir = 'D:\RoyStudies\Recordings';
+base_dir = 'C:\Users\Roy\Recordings';
+% base_dir = 'D:\RoyStudies\Recordings';
 out_base = fullfile(fileparts(mfilename('fullpath')), 'scooter_analysis', 'output');
 
 %% =====================================================================
@@ -71,6 +71,12 @@ out_base = fullfile(fileparts(mfilename('fullpath')), 'scooter_analysis', 'outpu
 %     fullfile(out_base, 'haifa_bay_binned_inst_freq_spread_60s.png'));
 % ReportGenerator.writePhaseLockComparisonReport({ba}, ...
 %     fullfile(out_base, 'haifa_bay_phase_lock_statistics.txt'), 60);
+% % 9. Per-Minute TiB Stability (2s to 60s Growing Window) Changes of Each File
+% PlotGenerator.minuteTiBChangeComparison(ba, ...
+%     fullfile(out_base, 'haifa_bay_minute_tib_change.png'));
+% % 10. Per-Minute TiB Stability Histograms (Mean, Std, Jain's Fairness) of Each File
+% PlotGenerator.minuteTiBHistograms(ba, ...
+%     fullfile(out_base, 'haifa_bay_minute_tib_histograms.png'));
 
 
 %% =====================================================================
@@ -176,6 +182,12 @@ out_base = fullfile(fileparts(mfilename('fullpath')), 'scooter_analysis', 'outpu
 %     fullfile(out_base, 'comparison_binned_phase_lock_60s_auv_solo.png'));
 % PlotGenerator.binnedInstFreqVerification({ba_auv}, ...
 %     fullfile(out_base, 'comparison_binned_inst_freq_spread_60s_auv_solo.png'));
+% % 9. Per-Minute TiB Stability (2s to 60s Growing Window) Changes
+% PlotGenerator.minuteTiBChangeComparison(ba_auv, ...
+%     fullfile(out_base, 'auv_minute_tib_change.png'));
+% % 10. Per-Minute TiB Stability Histograms (Mean, Std, Jain's Fairness)
+% PlotGenerator.minuteTiBHistograms(ba_auv, ...
+%     fullfile(out_base, 'auv_minute_tib_histograms.png'));
 
 
 %% =====================================================================
@@ -266,28 +278,36 @@ rolling_win_sec = 60;
 % PlotGenerator.binnedBandwidthDistribution({ba_h, ba_c, ba_auv}, ...
 %     fullfile(out_base, 'comparison_binned_bandwidth_60s_auv.png'));
 
-% 10. Fixed 60s Rolling Window Phase Lock (PLL) & Instantaneous Frequency Stability Comparison
-res_h_pll_roll = ba_h.getRollingPhaseLockResult(rolling_win_sec);
-res_c_pll_roll = ba_c.getRollingPhaseLockResult(rolling_win_sec);
-res_auv_pll_roll = ba_auv.getRollingPhaseLockResult(rolling_win_sec);
-PlotGenerator.rollingPhaseLockComparison({res_h_pll_roll, res_c_pll_roll, res_auv_pll_roll}, ...
-    fullfile(out_base, sprintf('comparison_rolling_phase_lock_%ds.png', rolling_win_sec)));
-PlotGenerator.rollingPhaseLockDerivativeComparison({res_h_pll_roll, res_c_pll_roll, res_auv_pll_roll}, ...
-    fullfile(out_base, sprintf('comparison_rolling_phase_lock_derivative_%ds.png', rolling_win_sec)));
+% % 10. Fixed 60s Rolling Window Phase Lock (PLL) & Instantaneous Frequency Stability Comparison
+% res_h_pll_roll = ba_h.getRollingPhaseLockResult(rolling_win_sec);
+% res_c_pll_roll = ba_c.getRollingPhaseLockResult(rolling_win_sec);
+% res_auv_pll_roll = ba_auv.getRollingPhaseLockResult(rolling_win_sec);
+% PlotGenerator.rollingPhaseLockComparison({res_h_pll_roll, res_c_pll_roll, res_auv_pll_roll}, ...
+%     fullfile(out_base, sprintf('comparison_rolling_phase_lock_%ds.png', rolling_win_sec)));
+% PlotGenerator.rollingPhaseLockDerivativeComparison({res_h_pll_roll, res_c_pll_roll, res_auv_pll_roll}, ...
+%     fullfile(out_base, sprintf('comparison_rolling_phase_lock_derivative_%ds.png', rolling_win_sec)));
 
-% 11. Phase Lock (R) & PLL Instantaneous Frequency Verification Binned Distributions (60s Slices)
-PlotGenerator.binnedPhaseLockDistribution({ba_h, ba_c, ba_auv}, ...
-    fullfile(out_base, 'comparison_binned_phase_lock_60s_auv.png'));
-PlotGenerator.binnedInstFreqVerification({ba_h, ba_c, ba_auv}, ...
-    fullfile(out_base, 'comparison_binned_inst_freq_spread_60s_auv.png'));
+% % 11. Phase Lock (R) & PLL Instantaneous Frequency Verification Binned Distributions (60s Slices)
+% PlotGenerator.binnedPhaseLockDistribution({ba_h, ba_c, ba_auv}, ...
+%     fullfile(out_base, 'comparison_binned_phase_lock_60s_auv.png'));
+% PlotGenerator.binnedInstFreqVerification({ba_h, ba_c, ba_auv}, ...
+%     fullfile(out_base, 'comparison_binned_inst_freq_spread_60s_auv.png'));
 
-% 12. 4-Panel Phase Lock PDF & Multi-Scale Window Stability Comparison
-PlotGenerator.phaseLockComparison({ba_h, ba_c, ba_auv}, ...
-    fullfile(out_base, 'comparison_phase_lock'));
+% % 12. 4-Panel Phase Lock PDF & Multi-Scale Window Stability Comparison
+% PlotGenerator.phaseLockComparison({ba_h, ba_c, ba_auv}, ...
+%     fullfile(out_base, 'comparison_phase_lock'));
 
-% 13. Phase Lock & Instantaneous Frequency Verification Statistical Report
-ReportGenerator.writePhaseLockComparisonReport({ba_h, ba_c, ba_auv}, ...
-    fullfile(out_base, 'phase_lock_verification_statistics.txt'), rolling_win_sec);
+% % 13. Phase Lock & Instantaneous Frequency Verification Statistical Report
+% ReportGenerator.writePhaseLockComparisonReport({ba_h, ba_c, ba_auv}, ...
+%     fullfile(out_base, 'phase_lock_verification_statistics.txt'), rolling_win_sec);
+
+% 14. Per-Minute TiB Stability (2s to 60s Growing Window) Changes of Each Dataset
+PlotGenerator.minuteTiBChangeComparison({ba_h, ba_c, ba_auv}, ...
+    fullfile(out_base, 'comparison_minute_tib_change.png'));
+
+% 15. Per-Minute TiB Stability Histograms (Mean, Std, Jain's Fairness) of Each Dataset
+PlotGenerator.minuteTiBHistograms({ba_h, ba_c, ba_auv}, ...
+    fullfile(out_base, 'comparison_minute_tib_histograms.png'));
 
 %% =====================================================================
 %  WORKFLOW 9: Multi-Dataset Watershed Bandwidth & Fairness Comparison

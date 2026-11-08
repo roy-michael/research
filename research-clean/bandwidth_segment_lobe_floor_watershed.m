@@ -21,8 +21,8 @@ clear; close all; clc;
 cfg = struct();
 
 % Directory hierarchy
-% base_dir = 'C:\Users\Roy\Recordings';
-base_dir = 'D:\RoyStudies\Recordings';
+base_dir = 'C:\Users\Roy\Recordings';
+% base_dir = 'D:\RoyStudies\Recordings';
 cfg.output_dir = fullfile(pwd, 'output_plots');
 if ~exist(cfg.output_dir, 'dir')
     mkdir(cfg.output_dir);

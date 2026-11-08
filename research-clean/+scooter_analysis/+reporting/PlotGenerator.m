@@ -980,6 +980,379 @@ classdef PlotGenerator
         end
 
 
+        function minuteTiBHistograms(varargin)
+            % minuteTiBHistograms - Plot normalised histograms and density distributions of
+            % per-minute Mean TiB, Std TiB, and Jain's Fairness Index across datasets.
+            %
+            % For each 1-minute interval of each dataset, TiB is calculated across growing
+            % sample windows from 2s to 60s. Then for each minute, the Mean TiB, Std TiB,
+            % and Jain's Fairness Index across window sizes are computed.
+            %
+            % Generates a 3-panel figure:
+            %   Panel 1: Normalised Histogram of Per-Minute Mean TiB (2s to 60s)
+            %   Panel 2: Normalised Histogram of Per-Minute Std TiB (2s to 60s)
+            %   Panel 3: Normalised Histogram of Per-Minute Jain's Fairness Index (2s to 60s)
+            %
+            % Usage:
+            %   PlotGenerator.minuteTiBHistograms(analyzer, out_path)
+            %   PlotGenerator.minuteTiBHistograms(analyzerA, analyzerB, out_path)
+            %   PlotGenerator.minuteTiBHistograms({ba_h, ba_c, ba_auv}, out_path)
+            %   PlotGenerator.minuteTiBHistograms(..., max_window_sec, out_path)
+
+            if isempty(varargin)
+                return;
+            end
+
+            out_path = '';
+            last_arg = varargin{end};
+            if (ischar(last_arg) && isrow(last_arg)) || (isstring(last_arg) && isscalar(last_arg))
+                out_path = char(last_arg);
+                items = varargin(1:end-1);
+            else
+                items = varargin;
+            end
+
+            max_window_sec = 60.0;
+            if ~isempty(items) && isnumeric(items{end}) && isscalar(items{end})
+                max_window_sec = items{end};
+                items = items(1:end-1);
+            end
+
+            if length(items) == 1 && iscell(items{1})
+                items = items{1};
+            end
+
+            % If a single BatchAnalyzer with multiple files was provided, compare its files (e.g. Leg1 vs Leg2)
+            if numel(items) == 1 && isa(items{1}, 'scooter_analysis.pipeline.BatchAnalyzer') && ...
+                    length(items{1}.FileResults) > 1
+                ba = items{1};
+                items = cell(length(ba.FileResults), 1);
+                for i = 1:length(ba.FileResults)
+                    items{i} = ba.FileResults(i);
+                end
+            end
+
+            datasets = {};
+            for i = 1:numel(items)
+                item = items{i};
+                if isempty(item); continue; end
+
+                if isa(item, 'scooter_analysis.pipeline.BatchAnalyzer')
+                    ds = item.getMinuteTiBStatsResult(max_window_sec);
+                elseif isa(item, 'scooter_analysis.results.FileResult')
+                    ds = item.getMinuteTiBStatsResult(max_window_sec);
+                elseif isstruct(item) && isfield(item, 'minute_mean_tib')
+                    ds = item;
+                else
+                    continue;
+                end
+
+                if ~isempty(ds.minute_mean_tib) && any(isfinite(ds.minute_mean_tib))
+                    datasets{end+1} = ds;
+                end
+            end
+
+            num_ds = length(datasets);
+            if num_ds < 1
+                fprintf('[PlotGenerator] No minute TiB stats data available to plot.\n');
+                return;
+            end
+
+            vis_state = 'off';
+            if isempty(out_path)
+                vis_state = 'on';
+            end
+
+            fig = figure('Name', 'Per-Minute TiB Scale Stability Distribution (Mean, Std, Jain''s Fairness)', ...
+                'Position', [60, 100, 1550, 480], 'Color', [0.08 0.11 0.17], 'Visible', vis_state);
+
+            ax1 = subplot(1, 3, 1);
+            ax2 = subplot(1, 3, 2);
+            ax3 = subplot(1, 3, 3);
+            all_axes = [ax1, ax2, ax3];
+
+            for ax = all_axes
+                hold(ax, 'on');
+            end
+
+            num_bins = 20;
+
+            % --- Subplot 1: Per-Minute Mean TiB ---
+            for k = 1:num_ds
+                ds = datasets{k};
+                [c, ec] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
+                vals = ds.minute_mean_tib(isfinite(ds.minute_mean_tib));
+                if isempty(vals); continue; end
+
+                m_val = mean(vals);
+                s_val = std(vals);
+                histogram(ax1, vals, num_bins, 'Normalization', 'pdf', ...
+                    'FaceColor', c, 'EdgeColor', ec, 'FaceAlpha', 0.35, 'LineWidth', 1.0, ...
+                    'DisplayName', sprintf('%s (\\mu: %.2f, \\sigma: %.2f)', ds.name, m_val, s_val));
+                
+                if length(vals) >= 4
+                    [f_kde, xi_kde] = ksdensity(vals, 'Bandwidth', 0.04);
+                    plot(ax1, xi_kde, f_kde, 'Color', c, 'LineWidth', 1.8, 'HandleVisibility', 'off');
+                end
+                xline(ax1, m_val, '--', 'Color', c, 'LineWidth', 1.4, 'HandleVisibility', 'off');
+            end
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax1, ...
+                'Per-Minute Mean TiB Distribution (2s to 60s)', ...
+                'Mean TiB per Minute', 'Probability Density');
+            xlim(ax1, [0, 1.05]);
+            lgd1 = legend(ax1, 'Location', 'best');
+            scooter_analysis.reporting.PlotGenerator.styleLegend(lgd1);
+
+            % --- Subplot 2: Per-Minute Std TiB ---
+            for k = 1:num_ds
+                ds = datasets{k};
+                [c, ec] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
+                vals = ds.minute_std_tib(isfinite(ds.minute_std_tib));
+                if isempty(vals); continue; end
+
+                m_val = mean(vals);
+                s_val = std(vals);
+                histogram(ax2, vals, num_bins, 'Normalization', 'pdf', ...
+                    'FaceColor', c, 'EdgeColor', ec, 'FaceAlpha', 0.35, 'LineWidth', 1.0, ...
+                    'DisplayName', sprintf('%s (\\mu: %.3f, \\sigma: %.3f)', ds.name, m_val, s_val));
+
+                if length(vals) >= 4
+                    [f_kde, xi_kde] = ksdensity(vals);
+                    plot(ax2, xi_kde, f_kde, 'Color', c, 'LineWidth', 1.8, 'HandleVisibility', 'off');
+                end
+                xline(ax2, m_val, '--', 'Color', c, 'LineWidth', 1.4, 'HandleVisibility', 'off');
+            end
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax2, ...
+                'Per-Minute TiB Std Distribution (Scale Dispersion)', ...
+                'Std TiB per Minute (\sigma_{TiB})', 'Probability Density');
+            lgd2 = legend(ax2, 'Location', 'best');
+            scooter_analysis.reporting.PlotGenerator.styleLegend(lgd2);
+
+            % --- Subplot 3: Per-Minute Jain''s Fairness Index ---
+            for k = 1:num_ds
+                ds = datasets{k};
+                [c, ec] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
+                vals = ds.minute_fair_tib(isfinite(ds.minute_fair_tib));
+                if isempty(vals); continue; end
+
+                m_val = mean(vals);
+                s_val = std(vals);
+                histogram(ax3, vals, num_bins, 'Normalization', 'pdf', ...
+                    'FaceColor', c, 'EdgeColor', ec, 'FaceAlpha', 0.35, 'LineWidth', 1.0, ...
+                    'DisplayName', sprintf('%s (\\mu: %.3f, \\sigma: %.3f)', ds.name, m_val, s_val));
+
+                if length(vals) >= 4
+                    [f_kde, xi_kde] = ksdensity(vals, 'Bandwidth', 0.02);
+                    plot(ax3, xi_kde, f_kde, 'Color', c, 'LineWidth', 1.8, 'HandleVisibility', 'off');
+                end
+                xline(ax3, m_val, '--', 'Color', c, 'LineWidth', 1.4, 'HandleVisibility', 'off');
+            end
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax3, ...
+                'Per-Minute Jain''s Fairness Index (Scale Uniformity)', ...
+                'Jain''s Fairness Index per Minute', 'Probability Density');
+            xlim(ax3, [0, 1.05]);
+            lgd3 = legend(ax3, 'Location', 'best');
+            scooter_analysis.reporting.PlotGenerator.styleLegend(lgd3);
+
+            scooter_analysis.reporting.PlotGenerator.safeExport(fig, out_path);
+        end
+
+
+        function minuteTiBChangeComparison(varargin)
+            % minuteTiBChangeComparison - Plot multi-panel comparison of 1-minute Time-in-Band
+            % change vectors (\DeltaTiB = TiB_{60s} - TiB_{2s}) across datasets.
+            %
+            % Evaluates a growing sample window from 2s to 60s for each 1-minute interval,
+            % extracts the start value (2s), end value (60s), and the resulting change vector.
+            %
+            % Generates a publication-grade 4-panel figure:
+            %   Panel 1: Probability Density Distribution (KDE) of \DeltaTiB Changes
+            %   Panel 2: Per-Minute \DeltaTiB Trajectory Across Recording Duration
+            %   Panel 3: Start (W=2s) vs End (W=60s) Stability Correlation Scatter
+            %   Panel 4: Summary Comparison Bar Chart (Mean \DeltaTiB \pm SD)
+            %
+            % Usage:
+            %   PlotGenerator.minuteTiBChangeComparison(analyzer, out_path)
+            %   PlotGenerator.minuteTiBChangeComparison(analyzerA, analyzerB, out_path)
+            %   PlotGenerator.minuteTiBChangeComparison({ba_h, ba_c, ba_auv}, out_path)
+            %   PlotGenerator.minuteTiBChangeComparison(..., max_window_sec, out_path)
+
+            if isempty(varargin)
+                return;
+            end
+
+            out_path = '';
+            last_arg = varargin{end};
+            if (ischar(last_arg) && isrow(last_arg)) || (isstring(last_arg) && isscalar(last_arg))
+                out_path = char(last_arg);
+                items = varargin(1:end-1);
+            else
+                items = varargin;
+            end
+
+            max_window_sec = 60.0;
+            if ~isempty(items) && isnumeric(items{end}) && isscalar(items{end})
+                max_window_sec = items{end};
+                items = items(1:end-1);
+            end
+
+            if length(items) == 1 && iscell(items{1})
+                items = items{1};
+            end
+
+            % If a single BatchAnalyzer with multiple files was provided, compare its files (e.g. Leg1 vs Leg2)
+            if numel(items) == 1 && isa(items{1}, 'scooter_analysis.pipeline.BatchAnalyzer') && ...
+                    length(items{1}.FileResults) > 1
+                ba = items{1};
+                items = cell(length(ba.FileResults), 1);
+                for i = 1:length(ba.FileResults)
+                    items{i} = ba.FileResults(i);
+                end
+            end
+
+            datasets = {};
+            for i = 1:numel(items)
+                item = items{i};
+                if isempty(item); continue; end
+
+                if isa(item, 'scooter_analysis.pipeline.BatchAnalyzer')
+                    ds = item.getMinuteTiBChangeResult(max_window_sec);
+                elseif isa(item, 'scooter_analysis.results.FileResult')
+                    ds = item.getMinuteTiBChangeResult(max_window_sec);
+                elseif isstruct(item) && isfield(item, 'delta_tib')
+                    ds = item;
+                else
+                    continue;
+                end
+
+                if ~isempty(ds.delta_tib) && any(isfinite(ds.delta_tib))
+                    datasets{end+1} = ds;
+                end
+            end
+
+            num_ds = length(datasets);
+            if num_ds < 1
+                fprintf('[PlotGenerator] No minute TiB change data available to plot.\n');
+                return;
+            end
+
+            vis_state = 'off';
+            if isempty(out_path)
+                vis_state = 'on';
+            end
+
+            fig = figure('Name', 'Per-Minute Time-in-Band (TiB) Stability Change Comparison', ...
+                'Position', [60, 60, 1500, 880], 'Color', [0.08 0.11 0.17], 'Visible', vis_state);
+
+            ax1 = subplot(2, 2, 1);
+            ax2 = subplot(2, 2, 2);
+            ax3 = subplot(2, 2, 3);
+            ax4 = subplot(2, 2, 4);
+            all_axes = [ax1, ax2, ax3, ax4];
+
+            for ax = all_axes
+                hold(ax, 'on');
+            end
+
+            % --- Subplot 1: Probability Density Distribution (KDE) of \DeltaTiB ---
+            xline(ax1, 0, '--', 'Color', [0.65 0.70 0.80], 'LineWidth', 1.2, 'Alpha', 0.85, ...
+                'DisplayName', 'Zero Change (\Delta = 0)');
+
+            for k = 1:num_ds
+                ds = datasets{k};
+                [c, ec] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
+                deltas = ds.delta_tib(isfinite(ds.delta_tib));
+
+                if length(deltas) >= 3
+                    [f_val, xi_val] = ksdensity(deltas);
+                    fill(ax1, xi_val, f_val, c, 'FaceAlpha', 0.25, ...
+                        'EdgeColor', ec, 'LineWidth', 1.8, ...
+                        'DisplayName', sprintf('%s (\\mu: %+.2f, \\sigma: %.2f)', ds.name, ds.mean_delta, ds.std_delta));
+                    xline(ax1, ds.mean_delta, ':', 'Color', c, 'LineWidth', 1.5, 'HandleVisibility', 'off');
+                else
+                    scatter(ax1, deltas, ones(size(deltas)), 40, c, 'filled', ...
+                        'DisplayName', sprintf('%s (\\mu: %+.2f)', ds.name, ds.mean_delta));
+                end
+            end
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax1, ...
+                'Distribution of Per-Minute \DeltaTiB (60s - 2s)', ...
+                '\DeltaTiB = TiB(60s) - TiB(2s)', 'Probability Density');
+            lgd1 = legend(ax1, 'Location', 'best');
+            scooter_analysis.reporting.PlotGenerator.styleLegend(lgd1);
+
+            % --- Subplot 2: Per-Minute \DeltaTiB Trajectory Across Time ---
+            yline(ax2, 0, '--', 'Color', [0.65 0.70 0.80], 'LineWidth', 1.2, 'Alpha', 0.85, ...
+                'DisplayName', 'Zero Drift (\Delta = 0)');
+
+            for k = 1:num_ds
+                ds = datasets{k};
+                [c, ~] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
+                plot(ax2, ds.times_min, ds.delta_tib, '.-', 'Color', c, 'LineWidth', 1.4, ...
+                    'MarkerSize', 10, 'DisplayName', ds.name);
+            end
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax2, ...
+                'Per-Minute \DeltaTiB Trajectory', 'Timeline (Minutes)', '\DeltaTiB (Change in TiB)');
+            lgd2 = legend(ax2, 'Location', 'best');
+            scooter_analysis.reporting.PlotGenerator.styleLegend(lgd2);
+
+            % --- Subplot 3: Start (W=2s) vs End (W=60s) Stability Correlation Scatter ---
+            plot(ax3, [0, 1], [0, 1], '--', 'Color', [0.65 0.70 0.80], 'LineWidth', 1.2, ...
+                'DisplayName', 'Identity Line (No Drift)');
+
+            for k = 1:num_ds
+                ds = datasets{k};
+                [c, ~] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
+                scatter(ax3, ds.start_vals, ds.end_vals, 45, c, 'filled', 'MarkerFaceAlpha', 0.65, ...
+                    'DisplayName', sprintf('%s (N = %d)', ds.name, length(ds.delta_tib)));
+            end
+            xlim(ax3, [0, 1.05]);
+            ylim(ax3, [0, 1.05]);
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax3, ...
+                'Start (2s) vs End (60s) TiB Scale Drift', ...
+                'Start TiB (Window W = 2 s)', 'End TiB (Window W = 60 s)');
+            lgd3 = legend(ax3, 'Location', 'best');
+            scooter_analysis.reporting.PlotGenerator.styleLegend(lgd3);
+
+            % --- Subplot 4: Summary Comparison Bar Chart (Mean \DeltaTiB \pm SD) ---
+            yline(ax4, 0, '--', 'Color', [0.65 0.70 0.80], 'LineWidth', 1.2, 'Alpha', 0.85, ...
+                'HandleVisibility', 'off');
+
+            bar_x = 1:num_ds;
+            for k = 1:num_ds
+                ds = datasets{k};
+                [c, ec] = scooter_analysis.reporting.PlotGenerator.getDatasetColor(ds.name, k);
+                bar(ax4, k, ds.mean_delta, 0.55, 'FaceColor', c, 'EdgeColor', ec, ...
+                    'FaceAlpha', 0.75, 'DisplayName', ds.name);
+                
+                s_val = ds.std_delta;
+                if isnan(s_val); s_val = 0; end
+                errorbar(ax4, k, ds.mean_delta, s_val, 'Color', [0.92 0.95 1.00], ...
+                    'LineWidth', 1.5, 'CapSize', 12, 'HandleVisibility', 'off');
+                
+                annot_str = sprintf('%+.3f\n\\pm%.3f', ds.mean_delta, ds.std_delta);
+                offset = 0.04 + s_val;
+                if ds.mean_delta >= 0
+                    y_text = ds.mean_delta + offset;
+                    va = 'bottom';
+                else
+                    y_text = ds.mean_delta - offset;
+                    va = 'top';
+                end
+                text(ax4, k, y_text, annot_str, 'Color', [0.96 0.98 1.00], ...
+                    'HorizontalAlignment', 'center', 'VerticalAlignment', va, ...
+                    'FontSize', 8.5, 'FontWeight', 'bold');
+            end
+            scooter_analysis.reporting.PlotGenerator.applyAxesStyle(ax4, ...
+                'Dataset Scale Stability Summary (Mean \DeltaTiB \pm SD)', '', 'Mean \DeltaTiB \pm SD');
+            set(ax4, 'XTick', bar_x, 'XTickLabel', cellfun(@(d) d.name, datasets, 'UniformOutput', false));
+            xtickangle(ax4, 25);
+            lgd4 = legend(ax4, 'Location', 'best');
+            scooter_analysis.reporting.PlotGenerator.styleLegend(lgd4);
+
+            scooter_analysis.reporting.PlotGenerator.safeExport(fig, out_path);
+        end
+
+
         function dominantFrequency(varargin)
             % dominantFrequency - Plot and export Figure 6: Welch PSD & Dominant Frequency.
             % (Matches Fig 6 in bandwidth_segment_lobe_floor_watershed.m)

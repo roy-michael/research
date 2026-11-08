@@ -14,17 +14,17 @@ Dataset: HaifaBay  (N = 480 windows of 60s | 57600 slices of 0.5s)
   Normalized Phase Entropy H_phi (60s) :   0.704 ±  0.060
   Inst. Freq Stability Fairness (60s)  :   0.973 ±  0.041
 
-Dataset: Croatia  (N = 327 windows of 60s | 39240 slices of 0.5s)
+Dataset: Croatia  (N = 332 windows of 60s | 39840 slices of 0.5s)
 ----------------------------------------------------------------------------------------------------
-  Dominant Frequency (Welch Peak)      :  740.83 ± 267.25 Hz
-  PLL Tracked Instantaneous Frequency  :  743.00 ± 258.89 Hz
-  Inst. Freq Verification |f_PLL-f_FFT|:    2.15 ±   2.59 Hz (Median: 1.38 Hz)
-  Watershed Bandwidth (60s Slice Mean) :   27.40 ±  15.70 Hz (Macro SD: 18.96 Hz)
-  PLL Inst. Freq Spread sigma_f (60s)  :   10.19 ±   3.33 Hz (Macro SD: 3.10 Hz)
-  Phase Locking Value R (60s Mean)     :   0.435 ±  0.218    (Macro SD: 0.181 | Median: 0.345)
-  Wrapped Phase Error SD sigma_phi     :   1.213 ±  0.471 rad
-  Normalized Phase Entropy H_phi (60s) :   0.689 ±  0.067
-  Inst. Freq Stability Fairness (60s)  :   0.937 ±  0.082
+  Dominant Frequency (Welch Peak)      :  742.69 ± 281.38 Hz
+  PLL Tracked Instantaneous Frequency  :  745.37 ± 275.31 Hz
+  Inst. Freq Verification |f_PLL-f_FFT|:    2.16 ±   2.75 Hz (Median: 1.32 Hz)
+  Watershed Bandwidth (60s Slice Mean) :   27.52 ±  16.35 Hz (Macro SD: 19.26 Hz)
+  PLL Inst. Freq Spread sigma_f (60s)  :   10.05 ±   3.26 Hz (Macro SD: 3.52 Hz)
+  Phase Locking Value R (60s Mean)     :   0.450 ±  0.211    (Macro SD: 0.205 | Median: 0.352)
+  Wrapped Phase Error SD sigma_phi     :   1.184 ±  0.498 rad
+  Normalized Phase Entropy H_phi (60s) :   0.673 ±  0.110
+  Inst. Freq Stability Fairness (60s)  :   0.942 ±  0.073
 
 Dataset: AUV  (N = 305 windows of 60s | 36600 slices of 0.5s)
 ----------------------------------------------------------------------------------------------------
