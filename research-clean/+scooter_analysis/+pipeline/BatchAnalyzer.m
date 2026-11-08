@@ -231,6 +231,63 @@ classdef BatchAnalyzer < handle
             res.all_main_bws = bws;
         end
 
+        function res = getMinuteTiBStatsResult(obj, max_window_sec)
+            % Build per-minute TiB stability stats (Mean, Std, Jain's Fairness) across all files in dataset.
+            if nargin < 2 || isempty(max_window_sec); max_window_sec = 60.0; end
+            tol_hz = obj.Config.bw_tib_tolerance_hz;
+            
+            num_files = length(obj.FileResults);
+            file_results = cell(num_files, 1);
+            
+            all_starts = [];
+            all_ends   = [];
+            all_deltas = [];
+            all_means  = [];
+            all_stds   = [];
+            all_fairs  = [];
+            all_times  = [];
+            cum_time   = 0;
+            
+            for f = 1:num_files
+                fr = obj.FileResults(f);
+                f_res = fr.getMinuteTiBStatsResult(max_window_sec, tol_hz);
+                file_results{f} = f_res;
+                
+                if ~isempty(f_res.minute_mean_tib)
+                    all_starts = [all_starts; f_res.start_vals(:)];
+                    all_ends   = [all_ends; f_res.end_vals(:)];
+                    all_deltas = [all_deltas; f_res.delta_tib(:)];
+                    all_means  = [all_means; f_res.minute_mean_tib(:)];
+                    all_stds   = [all_stds; f_res.minute_std_tib(:)];
+                    all_fairs  = [all_fairs; f_res.minute_fair_tib(:)];
+                    all_times  = [all_times; f_res.times_min(:) + cum_time];
+                    if ~isempty(f_res.times_min)
+                        cum_time = cum_time + max(f_res.times_min) + (max_window_sec / 60);
+                    end
+                end
+            end
+            
+            res = struct();
+            res.name            = obj.DatasetName;
+            res.tol_hz          = tol_hz;
+            res.max_window_sec  = max_window_sec;
+            res.file_results    = file_results;
+            res.times_min       = all_times;
+            res.start_vals      = all_starts;
+            res.end_vals        = all_ends;
+            res.delta_tib       = all_deltas;
+            res.minute_mean_tib = all_means;
+            res.minute_std_tib  = all_stds;
+            res.minute_fair_tib = all_fairs;
+            res.mean_delta      = mean(all_deltas, 'omitnan');
+            res.std_delta       = std(all_deltas, 'omitnan');
+        end
+
+        function res = getMinuteTiBChangeResult(obj, max_window_sec)
+            if nargin < 2; max_window_sec = 60.0; end
+            res = obj.getMinuteTiBStatsResult(max_window_sec);
+        end
+
         % --- Phase Lock (Digital PLL) & Instantaneous Frequency Verification Accessors ---
 
         function vals = getAllSlicePLVs(obj)

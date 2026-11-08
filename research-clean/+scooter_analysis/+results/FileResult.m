@@ -159,6 +159,122 @@ classdef FileResult
             res.all_main_bws = bws;
         end
         
+        function res = getMinuteTiBStatsResult(obj, max_window_sec, tol_hz)
+            % Compute per-minute Time-in-Band (TiB) across window sizes (2s to 60s)
+            % and calculate Mean TiB, Std TiB, and Jain's Fairness Index for each minute.
+            if nargin < 2 || isempty(max_window_sec); max_window_sec = 60.0; end
+            if nargin < 3 || isempty(tol_hz); tol_hz = 10.0; end
+            
+            % Check if existing segments match max_window_sec (e.g. 60s) with valid TiB curves
+            has_seg_tib = false;
+            if ~isempty(obj.segments) && isfield(obj.segments(1).slice_bw, 'all_tib') && ...
+                    ~isempty(obj.segments(1).slice_bw.all_tib) && ...
+                    abs(obj.segments(1).end_time - obj.segments(1).start_time - max_window_sec) < 1.0
+                has_seg_tib = true;
+            end
+            
+            if has_seg_tib
+                num_mins = length(obj.segments);
+                start_vals      = nan(num_mins, 1);
+                end_vals        = nan(num_mins, 1);
+                times_min       = nan(num_mins, 1);
+                minute_mean_tib = nan(num_mins, 1);
+                minute_std_tib  = nan(num_mins, 1);
+                minute_fair_tib = nan(num_mins, 1);
+                
+                for s = 1:num_mins
+                    times_min(s) = (obj.segments(s).start_time + obj.segments(s).end_time) / 120;
+                    if isfield(obj.segments(s).slice_bw, 'all_tib') && ~isempty(obj.segments(s).slice_bw.all_tib)
+                        tib_curve = obj.segments(s).slice_bw.all_tib(:);
+                        tib_valid = tib_curve(isfinite(tib_curve) & tib_curve >= 0);
+                        if ~isempty(tib_valid)
+                            start_vals(s) = tib_valid(1);
+                            end_vals(s)   = tib_valid(end);
+                            minute_mean_tib(s) = mean(tib_valid);
+                            minute_std_tib(s)  = std(tib_valid);
+                            sum_v = sum(tib_valid);
+                            sum_sq = sum(tib_valid.^2);
+                            if sum_sq > 0
+                                minute_fair_tib(s) = (sum_v^2) / (length(tib_valid) * sum_sq);
+                            else
+                                minute_fair_tib(s) = NaN;
+                            end
+                        end
+                    end
+                end
+            else
+                % Fallback: Chunk all slice bandwidths into max_window_sec blocks
+                bws = obj.getAllSliceBandwidths();
+                bws = bws(isfinite(bws) & bws > 0);
+                slice_dur = 0.500;
+                slices_per_bin = round(max_window_sec / slice_dur);
+                num_blocks = floor(length(bws) / slices_per_bin);
+                
+                start_vals      = nan(num_blocks, 1);
+                end_vals        = nan(num_blocks, 1);
+                times_min       = nan(num_blocks, 1);
+                minute_mean_tib = nan(num_blocks, 1);
+                minute_std_tib  = nan(num_blocks, 1);
+                minute_fair_tib = nan(num_blocks, 1);
+                
+                for b = 1:num_blocks
+                    idx_start = (b - 1) * slices_per_bin + 1;
+                    idx_end   = b * slices_per_bin;
+                    block_bws = bws(idx_start:idx_end);
+                    times_min(b) = (b - 0.5) * (max_window_sec / 60);
+                    
+                    if length(block_bws) >= round(2 / slice_dur)
+                        [~, tib_curve, ~, ~] = BandwidthTracker.compute_stability_vs_window( ...
+                            block_bws, slice_dur, max_window_sec, tol_hz);
+                        tib_valid = tib_curve(isfinite(tib_curve) & tib_curve >= 0);
+                        if ~isempty(tib_valid)
+                            start_vals(b) = tib_valid(1);
+                            end_vals(b)   = tib_valid(end);
+                            minute_mean_tib(b) = mean(tib_valid);
+                            minute_std_tib(b)  = std(tib_valid);
+                            sum_v = sum(tib_valid);
+                            sum_sq = sum(tib_valid.^2);
+                            if sum_sq > 0
+                                minute_fair_tib(b) = (sum_v^2) / (length(tib_valid) * sum_sq);
+                            else
+                                minute_fair_tib(b) = NaN;
+                            end
+                        end
+                    end
+                end
+            end
+            
+            valid = isfinite(minute_mean_tib);
+            start_vals      = start_vals(valid);
+            end_vals        = end_vals(valid);
+            times_min       = times_min(valid);
+            minute_mean_tib = minute_mean_tib(valid);
+            minute_std_tib  = minute_std_tib(valid);
+            minute_fair_tib = minute_fair_tib(valid);
+            delta_tib       = end_vals - start_vals;
+            
+            res = struct();
+            res.name            = obj.filename;
+            res.filename        = obj.filename;
+            res.times_min       = times_min;
+            res.start_vals      = start_vals;
+            res.end_vals        = end_vals;
+            res.delta_tib       = delta_tib;
+            res.minute_mean_tib = minute_mean_tib;
+            res.minute_std_tib  = minute_std_tib;
+            res.minute_fair_tib = minute_fair_tib;
+            res.mean_delta      = mean(delta_tib, 'omitnan');
+            res.std_delta       = std(delta_tib, 'omitnan');
+            res.max_window_sec  = max_window_sec;
+            res.tol_hz          = tol_hz;
+        end
+        
+        function res = getMinuteTiBChangeResult(obj, max_window_sec, tol_hz)
+            if nargin < 2; max_window_sec = 60.0; end
+            if nargin < 3; tol_hz = 10.0; end
+            res = obj.getMinuteTiBStatsResult(max_window_sec, tol_hz);
+        end
+        
         function res = getVisualizerResult(obj, custom_name)
             % Build a structured container compatible with all Visualizer render methods
             % (Fig 1 Macro-Lobe, Fig 2 Watershed BW, Fig 4 Fairness, Fig 6 Dominant Freq)
