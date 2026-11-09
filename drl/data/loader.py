@@ -1,5 +1,5 @@
 """
-Audio dataset loader and disjoint file-level Train / Held-Out Test splitter
+Audio dataset loader and disjoint file-level Train / Held-Out Test splitter (`drl.data.loader`)
 for the real HaifaBay, Croatia, and AUV hydrophone datasets.
 """
 
@@ -11,11 +11,15 @@ import scipy.signal as signal
 from scipy.io import wavfile
 
 from config import DSPConfig, REAL_DATASET_CONFIGS
-from feature_extractor import OfflineFeatureExtractor
+from dsp.feature_extractor import OfflineFeatureExtractor
 
 
-def load_real_wav_segment(filepath: str, start_sec: float, duration_sec: float = 30.0,
-                          target_fs: float = 4800.0) -> Tuple[np.ndarray, float]:
+def load_real_wav_segment(
+    filepath: str,
+    start_sec: float,
+    duration_sec: float = 60.0,
+    target_fs: float = 4800.0,
+) -> Tuple[np.ndarray, float]:
     """
     Memory-maps a WAV file on disk, extracts a `duration_sec` slice starting at
     `start_sec`, normalizes to zero-mean unit-variance, and resamples to `target_fs`.
@@ -46,8 +50,12 @@ def load_real_wav_segment(filepath: str, start_sec: float, duration_sec: float =
     return sig.astype(np.float32), float(target_fs)
 
 
-def synthesize_vessel_audio(f0: float = 400.0, duration: float = 30.0, fs: float = 4800.0,
-                            is_surface_boat: bool = True) -> Tuple[np.ndarray, float]:
+def synthesize_vessel_audio(
+    f0: float = 400.0,
+    duration: float = 60.0,
+    fs: float = 4800.0,
+    is_surface_boat: bool = True,
+) -> Tuple[np.ndarray, float]:
     """Fallback synthetic audio generator if `D:\\RoyStudies\\Recordings` is not mounted."""
     t = np.arange(0, duration, 1.0 / fs)
     if is_surface_boat:
@@ -102,7 +110,9 @@ def build_train_test_real_datasets(
             sig, _ = load_real_wav_segment(
                 wf, start_sec=start_sec, duration_sec=dsp_cfg.segment_duration_sec, target_fs=dsp_cfg.target_fs
             )
-            steps, dom_lobe = extractor.extract_recording_features(sig, f_low=cfg["f_low"], f_high=cfg["f_high"])
+            steps, dom_lobe, minute_tib_stats = extractor.extract_recording_features(
+                sig, f_low=cfg["f_low"], f_high=cfg["f_high"]
+            )
 
             meta = {
                 "dataset_name": cfg["name"],
@@ -115,6 +125,7 @@ def build_train_test_real_datasets(
                 "source_file": os.path.basename(wf),
                 "start_sec": start_sec,
                 "split": split_label,
+                "minute_tib_stats": minute_tib_stats,
             }
             recs.append({"steps": steps, "metadata": meta})
         return recs
@@ -136,7 +147,9 @@ def build_train_test_real_datasets(
                         fs=dsp_cfg.target_fs,
                         is_surface_boat=bool(cfg["is_surface"]),
                     )
-                    steps, dom_lobe = extractor.extract_recording_features(sig, f_low=cfg["f_low"], f_high=cfg["f_high"])
+                    steps, dom_lobe, minute_tib_stats = extractor.extract_recording_features(
+                        sig, f_low=cfg["f_low"], f_high=cfg["f_high"]
+                    )
                     meta = {
                         "dataset_name": cfg["name"],
                         "dataset_id": cfg["dataset_id"],
@@ -146,6 +159,7 @@ def build_train_test_real_datasets(
                         "theta_g": cfg["theta_g"],
                         "max_vz": cfg["max_vz"],
                         "split": split_label,
+                        "minute_tib_stats": minute_tib_stats,
                     }
                     target_list.append({"steps": steps, "metadata": meta})
             continue

@@ -3,7 +3,7 @@ Neural network architecture (`PIMLActorCritic`), PPO / primal-dual Lagrangian CP
 training loop (`train_piml_agent`), and deterministic dataset evaluator (`evaluate_agent_by_dataset`).
 """
 
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Callable, Optional
 import numpy as np
 import torch
 import torch.nn as nn
@@ -11,7 +11,7 @@ import torch.optim as optim
 from torch.distributions import Normal
 
 from config import TrainConfig
-from env import AcousticPIMLEnv
+from rl.env import AcousticPIMLEnv
 
 
 class PIMLActorCritic(nn.Module):
@@ -66,11 +66,16 @@ def train_piml_agent(
     env: AcousticPIMLEnv,
     mode: str = "CPO",
     train_cfg: TrainConfig = None,
+    eval_env: Optional[AcousticPIMLEnv] = None,
+    epoch_callback: Optional[Callable[[int, str, Dict[str, Any]], None]] = None,
 ) -> Tuple[PIMLActorCritic, Dict[str, list]]:
     """
     Trains the agent using either:
     - 'PPO': Fixed soft penalty weight on physical constraint violations.
     - 'CPO': Constrained Policy Optimization via primal-dual Lagrangian multiplier optimization.
+
+    If `eval_env` or `epoch_callback` is provided, evaluates per-dataset verification metrics
+    at the end of each epoch and streams live telemetry to `epoch_callback`.
     """
     if train_cfg is None:
         train_cfg = TrainConfig()
@@ -88,10 +93,23 @@ def train_piml_agent(
     log_lambda = torch.tensor(-0.5, requires_grad=True)
     lambda_optimizer = optim.Adam([log_lambda], lr=train_cfg.lr_lambda)
 
-    history = {"reward": [], "cost": [], "accuracy": []}
+    ds_names = [c["name"] for c in train_cfg.dataset_configs]
+    history = {
+        "reward": [],
+        "cost": [],
+        "accuracy": [],
+        "lambda": [],
+        "train_ds_acc": {n: [] for n in ds_names},
+        "test_ds_acc": {n: [] for n in ds_names},
+        "test_ds_cost": {n: [] for n in ds_names},
+        "test_ds_reward": {n: [] for n in ds_names},
+        "test_ds_bw_gate": {n: [] for n in ds_names},
+        "test_ds_target_bw": {n: [] for n in ds_names},
+    }
 
-    for _ in range(train_cfg.epochs):
+    for epoch_idx in range(train_cfg.epochs):
         states, actions, log_probs, rewards, costs, dones, accs = [], [], [], [], [], [], []
+        ds_rollout_accs: Dict[str, list] = {n: [] for n in ds_names}
         state, _ = env.reset()
 
         for _ in range(train_cfg.steps_per_epoch):
@@ -110,6 +128,8 @@ def train_piml_agent(
             costs.append(info["cost"])
             dones.append(done)
             accs.append(info["correct"])
+            if info["dataset_name"] in ds_rollout_accs:
+                ds_rollout_accs[info["dataset_name"]].append(info["correct"])
 
             state = next_state if not done else env.reset()[0]
 
@@ -172,6 +192,27 @@ def train_piml_agent(
         history["reward"].append(float(np.mean(rewards)))
         history["cost"].append(avg_ep_cost)
         history["accuracy"].append(float(np.mean(accs) * 100.0))
+        history["lambda"].append(lam)
+
+        if eval_env is not None:
+            train_eval_epoch = evaluate_agent_by_dataset(env, model)
+            test_eval_epoch = evaluate_agent_by_dataset(eval_env, model)
+            for n in ds_names:
+                if n in train_eval_epoch:
+                    history["train_ds_acc"][n].append(train_eval_epoch[n]["accuracy"])
+                if n in test_eval_epoch:
+                    history["test_ds_acc"][n].append(test_eval_epoch[n]["accuracy"])
+                    history["test_ds_cost"][n].append(test_eval_epoch[n]["cost"])
+                    history["test_ds_reward"][n].append(test_eval_epoch[n]["reward"])
+                    history["test_ds_bw_gate"][n].append(test_eval_epoch[n]["bw_gate_hz"])
+                    history["test_ds_target_bw"][n].append(test_eval_epoch[n]["target_bw_hz"])
+        else:
+            for n in ds_names:
+                tr_acc_n = float(np.mean(ds_rollout_accs[n]) * 100.0) if ds_rollout_accs[n] else 0.0
+                history["train_ds_acc"][n].append(tr_acc_n)
+
+        if epoch_callback is not None:
+            epoch_callback(epoch_idx + 1, mode.upper(), history)
 
     return model, history
 
@@ -188,6 +229,12 @@ def evaluate_agent_by_dataset(env: AcousticPIMLEnv, model: PIMLActorCritic) -> D
                 "reward": [],
                 "bw_gate_hz": [],
                 "target_bw_hz": [],
+                "bw_fit_reward": [],
+                "fairness_regime_reward": [],
+                "minute_mean_tib": [],
+                "minute_std_tib": [],
+                "minute_fair_tib": [],
+                "minute_delta_tib": [],
             }
 
         state, _ = env.reset(options={"rec_idx": rec_idx})
@@ -205,6 +252,12 @@ def evaluate_agent_by_dataset(env: AcousticPIMLEnv, model: PIMLActorCritic) -> D
             per_ds[ds_name]["reward"].append(reward)
             per_ds[ds_name]["bw_gate_hz"].append(info["bw_action_hz"])
             per_ds[ds_name]["target_bw_hz"].append(info["target_bw_hz"])
+            per_ds[ds_name]["bw_fit_reward"].append(info["bw_fit_reward"])
+            per_ds[ds_name]["fairness_regime_reward"].append(info["fairness_regime_reward"])
+            per_ds[ds_name]["minute_mean_tib"].append(info["minute_mean_tib"])
+            per_ds[ds_name]["minute_std_tib"].append(info["minute_std_tib"])
+            per_ds[ds_name]["minute_fair_tib"].append(info["minute_fair_tib"])
+            per_ds[ds_name]["minute_delta_tib"].append(info["minute_delta_tib"])
 
     summary: Dict[str, Dict[str, float]] = {}
     for ds_name, vals in per_ds.items():
@@ -214,6 +267,12 @@ def evaluate_agent_by_dataset(env: AcousticPIMLEnv, model: PIMLActorCritic) -> D
             "reward": float(np.mean(vals["reward"])),
             "bw_gate_hz": float(np.mean(vals["bw_gate_hz"])),
             "target_bw_hz": float(np.mean(vals["target_bw_hz"])),
+            "bw_fit_reward": float(np.mean(vals["bw_fit_reward"])),
+            "fairness_regime_reward": float(np.mean(vals["fairness_regime_reward"])),
+            "minute_mean_tib": float(np.mean(vals["minute_mean_tib"])),
+            "minute_std_tib": float(np.mean(vals["minute_std_tib"])),
+            "minute_fair_tib": float(np.mean(vals["minute_fair_tib"])),
+            "minute_delta_tib": float(np.mean(vals["minute_delta_tib"])),
         }
     return summary
 

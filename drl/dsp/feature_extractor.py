@@ -1,23 +1,16 @@
 """
-Offline DSP feature extraction module:
+Offline DSP feature extraction module (`drl.dsp.feature_extractor`):
 Combines high-resolution Welch PSD + macro-lobe segmentation, 0.5-second slice
-topographic watershed bandwidth tracking, Hilbert envelope analysis, and per-0.5s
+topographic watershed bandwidth tracking, multiscale Time-in-Band (TiB) & Jain's
+Fairness scale-uniformity analysis, Hilbert envelope analysis, and per-0.5s
 2nd-order quadrature Digital PLL phase-lock tracking.
 """
 
-import os
-import sys
 import numpy as np
 import scipy.signal as signal
 
 from config import DSPConfig
-
-# Import the exact Python port of SpectralEngine.m & BandwidthTracker.m
-SIM_BELLHOP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "research", "simulate_bellhop"))
-if SIM_BELLHOP_DIR not in sys.path:
-    sys.path.insert(0, SIM_BELLHOP_DIR)
-
-from bandwidth_tracker import (
+from dsp.watershed_tracker import (
     DEFAULT_BW_CONFIG,
     compute_welch_psd,
     segment_macro_lobes,
@@ -27,11 +20,12 @@ from bandwidth_tracker import (
 
 class OfflineFeatureExtractor:
     """
-    Runs once per 30-second real audio recording prior to RL training.
+    Runs once per 60-second (1-minute) real audio recording prior to RL training.
     Matches the exact `research-clean` MATLAB pipeline:
       1. High-resolution Welch PSD + Topographic Macro-Lobe Segmentation (`dom_lobe`)
       2. 0.5-second Slice Windowed-FFT Topographic Watershed Bandwidth (`main_f`, `main_bw`)
-      3. Per-0.5-second Segment Dominant-Frequency 2nd-Order Digital PLL Phase Lock:
+      3. Multiscale Time-in-Band (TiB) & Jain's Fairness Scale-Uniformity across W = 2s..60s
+      4. Per-0.5-second Segment Dominant-Frequency 2nd-Order Digital PLL Phase Lock:
          - Phase Locking Value R in [0, 1] (`plv_r`)
          - PLL Instantaneous Frequency Spread sigma_f (`inst_freq_std`, Hz)
          - Instantaneous Frequency Verification Error |f_PLL - f_FFT| (`freq_verif_err`, Hz)
@@ -50,12 +44,136 @@ class OfflineFeatureExtractor:
     @staticmethod
     def compute_jains_index(values: np.ndarray) -> float:
         x = np.asarray(values, dtype=np.float64)
-        x = x[np.isfinite(x) & (x > 0)]
+        x = x[np.isfinite(x) & (x >= 0)]
         if len(x) == 0:
             return 1.0
-        s_val = np.sum(x)
-        s_sq = np.sum(x ** 2)
+        s_val = float(np.sum(x))
+        s_sq = float(np.sum(x ** 2))
         return float((s_val ** 2) / (len(x) * s_sq)) if s_sq > 0 else 1.0
+
+    @staticmethod
+    def medfilt1_matlab(x: np.ndarray, k: int) -> np.ndarray:
+        """
+        Matches MATLAB's `medfilt1(x, k)` (1D median filter supporting even or odd
+        window length `k`, e.g., `k = round(5 / 0.5) = 10`).
+        """
+        arr = np.asarray(x, dtype=np.float64)
+        n = len(arr)
+        if n == 0 or k <= 1:
+            return arr.copy()
+        half_left = k // 2
+        half_right = k - half_left
+        out = np.empty(n, dtype=np.float64)
+        for i in range(n):
+            i0 = max(0, i - half_left)
+            i1 = min(n, i + half_right)
+            out[i] = float(np.median(arr[i0:i1]))
+        return out
+
+    def compute_multiscale_tib_fairness(
+        self,
+        bw_array: np.ndarray,
+        max_window_sec: float = None,
+        pre_filtered: bool = False,
+    ) -> dict:
+        r"""
+        Exact Python port of `BandwidthTracker.compute_stability_vs_window` +
+        `FileResult.getMinuteTiBStatsResult` used by:
+          - `PlotGenerator.minuteTiBChangeComparison` (`comparison_minute_tib_change.png`)
+          - `PlotGenerator.minuteTiBHistograms` (`comparison_minute_tib_histograms.png`)
+
+        Sweeps window scale W from 2s to `max_window_sec` (up to 60s) in 2s increments,
+        partitions `bw_array` into non-overlapping blocks of size W, computes Time-in-Band
+        TiB(W) per block (within +/- `tol_hz` of block median), and derives:
+          - `tib_2s`:          Start TiB at W = 2s
+          - `tib_end`:         End TiB at W = max_window_sec (e.g. 60s)
+          - `delta_tib`:       Scale drift \DeltaTiB = TiB(W_max) - TiB(2s)
+          - `minute_mean_tib`: Per-minute Mean TiB across scales (\mu_{TiB})
+          - `minute_std_tib`:  Per-minute Std TiB across scales (\sigma_{TiB}, scale dispersion)
+          - `minute_fair_tib`: Per-minute Jain's Fairness Index of TiB across scales (J_{TiB}, scale uniformity)
+        """
+        bws = np.asarray(bw_array, dtype=np.float64)
+        bws = bws[np.isfinite(bws) & (bws > 0)]
+        if len(bws) == 0:
+            return {
+                "window_sizes_sec": np.array([2.0]),
+                "tib_curve": np.array([1.0]),
+                "tib_2s": 1.0,
+                "tib_end": 1.0,
+                "delta_tib": 0.0,
+                "minute_mean_tib": 1.0,
+                "minute_std_tib": 0.0,
+                "minute_fair_tib": 1.0,
+            }
+
+        if not pre_filtered:
+            med_k = max(3, int(round(5.0 / self.buffer_sec)))
+            bws = self.medfilt1_matlab(bws, med_k)
+
+        total_time_sec = len(bws) * self.buffer_sec
+        if max_window_sec is None:
+            max_win = float(np.floor(min(self.cfg.tib_max_win_sec, total_time_sec)))
+        else:
+            max_win = float(np.floor(min(max_window_sec, total_time_sec)))
+
+        min_win = float(self.cfg.tib_min_win_sec)
+        step_win = float(self.cfg.tib_win_step_sec)
+
+        if max_win < min_win:
+            med_val = float(np.median(bws))
+            tib_single = float(np.mean(np.abs(bws - med_val) <= self.tol_hz))
+            return {
+                "window_sizes_sec": np.array([min_win]),
+                "tib_curve": np.array([tib_single]),
+                "tib_2s": tib_single,
+                "tib_end": tib_single,
+                "delta_tib": 0.0,
+                "minute_mean_tib": tib_single,
+                "minute_std_tib": 0.0,
+                "minute_fair_tib": 1.0,
+            }
+
+        window_sizes_sec = np.arange(min_win, max_win + 0.5 * step_win, step_win, dtype=np.float64)
+        fs_samples = 1.0 / self.buffer_sec
+        T = len(bws)
+        tib_curve = []
+        valid_wins = []
+
+        for win_sec in window_sizes_sec:
+            N = max(1, int(round(win_sec * fs_samples)))
+            num_blocks = T // N
+            if num_blocks < 1:
+                continue
+            tib_blocks = np.empty(num_blocks, dtype=np.float64)
+            for b in range(num_blocks):
+                block_data = bws[b * N: (b + 1) * N]
+                med_val = float(np.median(block_data))
+                tib_blocks[b] = float(np.sum(np.abs(block_data - med_val) <= self.tol_hz)) / float(len(block_data))
+            tib_curve.append(float(np.mean(tib_blocks)))
+            valid_wins.append(win_sec)
+
+        tib_arr = np.asarray(tib_curve, dtype=np.float64)
+        if len(tib_arr) == 0:
+            tib_arr = np.array([1.0], dtype=np.float64)
+            valid_wins = [min_win]
+
+        tib_2s = float(tib_arr[0])
+        tib_end = float(tib_arr[-1])
+        delta_tib = float(tib_end - tib_2s)
+        minute_mean_tib = float(np.mean(tib_arr))
+        minute_std_tib = float(np.std(tib_arr, ddof=1)) if len(tib_arr) > 1 else 0.0
+        minute_fair_tib = self.compute_jains_index(tib_arr)
+
+        return {
+            "window_sizes_sec": np.asarray(valid_wins, dtype=np.float64),
+            "tib_curve": tib_arr,
+            "tib_2s": tib_2s,
+            "tib_end": tib_end,
+            "delta_tib": delta_tib,
+            "minute_mean_tib": minute_mean_tib,
+            "minute_std_tib": minute_std_tib,
+            "minute_fair_tib": minute_fair_tib,
+        }
 
     @staticmethod
     def compute_masd(env: np.ndarray) -> float:
@@ -173,8 +291,8 @@ class OfflineFeatureExtractor:
 
     def extract_recording_features(self, audio_sig: np.ndarray, f_low: float = 0.0, f_high: float = 2000.0):
         """
-        Extracts 60 steps (0.5s each) of exact Watershed Bandwidth + Digital PLL features
-        from a 30-second recording.
+        Extracts 120 steps (0.5s each) of exact Watershed Bandwidth, Multiscale TiB Fairness,
+        and Digital PLL features from a 60-second recording.
         """
         bw_cfg = dict(DEFAULT_BW_CONFIG)
         bw_cfg["f_low"] = float(f_low)
@@ -227,9 +345,13 @@ class OfflineFeatureExtractor:
         plvs = np.array([b["plv_r"] for b in buffer_features], dtype=np.float64)
         f_stds = np.array([b["inst_freq_std"] for b in buffer_features], dtype=np.float64)
 
-        med_k = min(9, len(bws) if len(bws) % 2 == 1 else max(1, len(bws) - 1))
-        bws_med = signal.medfilt(bws, kernel_size=med_k) if med_k >= 3 else bws.copy()
-        plvs_med = signal.medfilt(plvs, kernel_size=med_k) if med_k >= 3 else plvs.copy()
+        med_k_matlab = max(3, int(round(5.0 / self.buffer_sec)))
+        bws_med = self.medfilt1_matlab(bws, med_k_matlab)
+        plvs_med = self.medfilt1_matlab(plvs, med_k_matlab)
+
+        minute_tib_stats = self.compute_multiscale_tib_fairness(
+            bws_med, max_window_sec=self.cfg.tib_max_win_sec, pre_filtered=True
+        )
 
         state_sequence = []
         prev_jain = 1.0
@@ -240,12 +362,24 @@ class OfflineFeatureExtractor:
             fstd_win = f_stds[win_start: j + 1]
             df_dt = float(abs(f_doms[j] - f_doms[j - 1])) if j > 0 else 0.0
 
+            causal_end = max(min(num_buffers, 12), j + 1)
+            step_tib_stats = self.compute_multiscale_tib_fairness(
+                bws_med[:causal_end], max_window_sec=self.cfg.tib_max_win_sec, pre_filtered=True
+            )
+
             med_bw = float(np.median(bw_win))
             time_in_band = float(np.mean(np.abs(bw_win - med_bw) <= self.tol_hz))
 
-            jain_val = self.compute_jains_index(bw_win)
-            djain_dt = float(abs(jain_val - prev_jain)) if j > 0 else 0.0
-            prev_jain = jain_val
+            jain_bw = self.compute_jains_index(bw_win)
+            jain_tib_fairness = float(step_tib_stats["minute_fair_tib"])
+            mean_tib_multiscale = float(step_tib_stats["minute_mean_tib"])
+            std_tib_multiscale = float(step_tib_stats["minute_std_tib"])
+            delta_tib_multiscale = float(step_tib_stats["delta_tib"])
+            tib_2s_val = float(step_tib_stats["tib_2s"])
+            tib_end_val = float(step_tib_stats["tib_end"])
+
+            djain_dt = float(abs(jain_tib_fairness - prev_jain)) if j > 0 else 0.0
+            prev_jain = jain_tib_fairness
 
             bw_mean = float(np.mean(bw_win))
             bw_std = float(np.std(bw_win))
@@ -253,11 +387,11 @@ class OfflineFeatureExtractor:
             fstd_mean = float(np.mean(fstd_win))
 
             s_t = np.array([
-                (time_in_band - 0.75) * 4.0,
-                (jain_val - 0.94) * 15.0,
-                djain_dt * 20.0,
+                (mean_tib_multiscale - 0.78) * 4.5,
+                (jain_tib_fairness - 0.96) * 22.0,
+                (delta_tib_multiscale + 0.18) * 4.5,
+                (std_tib_multiscale - 0.065) * 18.0,
                 (bw_mean - 55.0) / 35.0,
-                (bw_std - 20.0) / 20.0,
                 (buffer_features[j]["masd"] - 0.15) * 8.0,
                 (plv_mean - 0.36) * 5.0,
                 (fstd_mean - 11.5) / 3.5,
@@ -266,7 +400,20 @@ class OfflineFeatureExtractor:
             state_sequence.append({
                 "s_t": s_t,
                 "tib": time_in_band,
-                "jain": jain_val,
+                "jain": jain_bw,
+                "minute_mean_tib": float(minute_tib_stats["minute_mean_tib"]),
+                "minute_std_tib": float(minute_tib_stats["minute_std_tib"]),
+                "minute_fair_tib": float(minute_tib_stats["minute_fair_tib"]),
+                "minute_delta_tib": float(minute_tib_stats["delta_tib"]),
+                "minute_tib_2s": float(minute_tib_stats["tib_2s"]),
+                "minute_tib_60s": float(minute_tib_stats["tib_end"]),
+                "step_mean_tib": mean_tib_multiscale,
+                "step_std_tib": std_tib_multiscale,
+                "step_fair_tib": jain_tib_fairness,
+                "step_delta_tib": delta_tib_multiscale,
+                "step_tib_2s": tib_2s_val,
+                "step_tib_end": tib_end_val,
+                "djain_dt": djain_dt,
                 "df_dt": df_dt,
                 "bw_measured": buffer_features[j]["bw_measured"],
                 "bw_mean": bw_mean,
@@ -279,5 +426,5 @@ class OfflineFeatureExtractor:
                 "coherence_time": buffer_features[j]["coherence_time"],
             })
 
-        return state_sequence, dom_lobe
+        return state_sequence, dom_lobe, minute_tib_stats
 

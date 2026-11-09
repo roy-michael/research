@@ -4,3 +4,6 @@ bellhopcuda/
 /output/
 ~$*
 .*.bkp
+__pycache__/
+*.pyc
+
