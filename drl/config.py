@@ -12,19 +12,26 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-DEFAULT_RECORDINGS_DIR = r"D:\RoyStudies\Recordings"
+# DEFAULT_RECORDINGS_DIR = r"D:\RoyStudies\Recordings"
+DEFAULT_RECORDINGS_DIR = r"C:\Users\Roy\Recordings"
 OUTPUT_PLOT_PATH = os.path.join(OUTPUT_DIR, "drl_real_datasets_results.png")
 OUTPUT_FAIRNESS_PLOT_PATH = os.path.join(OUTPUT_DIR, "drl_tib_fairness_reward_results.png")
 OUTPUT_FAIRNESS_HIST_PATH = os.path.join(OUTPUT_DIR, "drl_minute_tib_fairness_histograms.png")
 OUTPUT_FAIRNESS_CHANGE_PATH = os.path.join(OUTPUT_DIR, "drl_minute_tib_change_comparison.png")
 OUTPUT_LIVE_DASHBOARD_PATH = os.path.join(OUTPUT_DIR, "drl_live_training_verification.png")
 
+# 3-Class Classification Constants
+CLASS_AMBIENT = 0
+CLASS_UNDERWATER = 1
+CLASS_SURFACE = 2
+CLASS_NAMES = ["Ambient Noise", "Underwater Scooter", "Surface Vessel"]
+NUM_CLASSES = 3
 
 REAL_DATASET_CONFIGS: List[Dict[str, Any]] = [
     {
         "name": "HaifaBay",
         "rel_path": r"20250805_Haifa_bay_LME\extracted-2",
-        "is_surface": 1,
+        "default_class": CLASS_SURFACE,
         "dataset_id": 0,
         "f_low": 20.0,
         "f_high": 1000.0,
@@ -35,7 +42,7 @@ REAL_DATASET_CONFIGS: List[Dict[str, Any]] = [
     {
         "name": "Croatia",
         "rel_path": r"Croatia\wav\merged",
-        "is_surface": 0,
+        "default_class": CLASS_UNDERWATER,
         "dataset_id": 1,
         "f_low": 400.0,
         "f_high": 1600.0,
@@ -46,13 +53,24 @@ REAL_DATASET_CONFIGS: List[Dict[str, Any]] = [
     {
         "name": "AUV",
         "rel_path": r"AUVExp_1_26",
-        "is_surface": 0,
+        "default_class": CLASS_UNDERWATER,
         "dataset_id": 2,
         "f_low": 300.0,
         "f_high": 1400.0,
         "theta_g": float(np.deg2rad(14.0)),
         "max_vz": 0.25,
         "fw_est": 0.12,
+    },
+    {
+        "name": "BuoyAmbient",
+        "rel_path": r"buoy_02_07_2025\records",
+        "default_class": CLASS_AMBIENT,
+        "dataset_id": 3,
+        "f_low": 20.0,
+        "f_high": 1200.0,
+        "theta_g": float(np.deg2rad(5.0)),
+        "max_vz": 0.10,
+        "fw_est": 0.10,
     },
 ]
 
@@ -79,10 +97,11 @@ class DSPConfig:
 
 @dataclass
 class TrainConfig:
-    """Hyperparameters for PIML-PPO and PIML-CPO agent training."""
-    reward_mode: str = "tib_fairness"  # "tib_fairness" (comparison_minute_tib_*) or "pll_watershed"
-    state_dim: int = 8
-    action_dim: int = 3
+    """Hyperparameters for 3-Class Physics-Informed PPO and CPO agent training."""
+    reward_mode: str = "tib_fairness"  # "tib_fairness" or "pll_watershed"
+    state_dim: int = 9  # [mu_tib, jain_tib, delta_tib, std_tib, bw, masd, plv_r, inst_freq_std, snr_peak]
+    action_dim: int = 5  # [delta_f, bw_action_norm, logit_ambient, logit_underwater, logit_surface]
+    num_classes: int = NUM_CLASSES
     hidden_dim: int = 64
     epochs: int = 45
     steps_per_epoch: int = 480

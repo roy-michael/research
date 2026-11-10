@@ -12,6 +12,11 @@ from config import (
     OUTPUT_FAIRNESS_PLOT_PATH,
     OUTPUT_FAIRNESS_HIST_PATH,
     OUTPUT_FAIRNESS_CHANGE_PATH,
+    CLASS_AMBIENT,
+    CLASS_UNDERWATER,
+    CLASS_SURFACE,
+    CLASS_NAMES,
+    NUM_CLASSES,
 )
 
 
@@ -22,8 +27,7 @@ def print_feature_summary(
 ) -> None:
     """
     Prints the extracted DSP, Watershed Bandwidth, 0.5s Digital PLL, and
-    Per-Minute Multiscale TiB & Scale-Uniformity Fairness summary
-    matching `comparison_minute_tib_change.png` and `comparison_minute_tib_histograms.png`.
+    Per-Minute Multiscale TiB & Scale-Uniformity Fairness summary across all datasets and physical classes.
     """
     if dataset_configs is None:
         dataset_configs = REAL_DATASET_CONFIGS
@@ -33,72 +37,88 @@ def print_feature_summary(
     n_slices_tr = sum(len(d["steps"]) for d in train_dataset)
     n_slices_te = sum(len(d["steps"]) for d in test_dataset)
 
-    print("\n" + "-" * 118)
+    print("\n" + "-" * 122)
     print(
         f"EXTRACTED REAL DATASET FEATURE & MULTISCALE TiB FAIRNESS SUMMARY "
         f"(TRAIN: {n_tr_eps} mins [{n_slices_tr} sl] | TEST: {n_te_eps} mins [{n_slices_te} sl])"
     )
-    print("-" * 118)
+    print("-" * 122)
     for cfg in dataset_configs:
         ds_name = cfg["name"]
         tr_recs = [d for d in train_dataset if d["metadata"]["dataset_name"] == ds_name]
         te_recs = [d for d in test_dataset if d["metadata"]["dataset_name"] == ds_name]
         all_recs = tr_recs + te_recs
+        if not all_recs:
+            continue
         all_steps = [s for d in all_recs for s in d["steps"]]
 
         f_dom_m = np.mean([s["f_dom"] for s in all_steps])
         bw_m = np.mean([s["bw_measured"] for s in all_steps])
         plv_m = np.mean([s["plv_r"] for s in all_steps])
+        snr_m = np.mean([d["metadata"].get("snr_peak", 10.0) for d in all_recs])
+
+        # Physical class counts
+        classes_present = [d["metadata"]["target_class_name"] for d in all_recs]
+        cls_summary = ", ".join(f"{c}: {classes_present.count(c)}" for c in sorted(set(classes_present)))
 
         min_mean_tib = np.mean([d["metadata"]["minute_tib_stats"]["minute_mean_tib"] for d in all_recs])
         min_std_tib = np.mean([d["metadata"]["minute_tib_stats"]["minute_std_tib"] for d in all_recs])
         min_fair_tib = np.mean([d["metadata"]["minute_tib_stats"]["minute_fair_tib"] for d in all_recs])
         min_delta_tib = np.mean([d["metadata"]["minute_tib_stats"]["delta_tib"] for d in all_recs])
-        min_delta_std = np.std([d["metadata"]["minute_tib_stats"]["delta_tib"] for d in all_recs])
 
         print(
-            f"  {ds_name:<9} (Train={len(tr_recs):2d}m, Test={len(te_recs):2d}m): "
-            f"f_dom={f_dom_m:5.1f} Hz | BW={bw_m:5.1f} Hz | PLL R={plv_m:.3f} | "
-            f"MeanTiB={min_mean_tib:.2f} | StdTiB={min_std_tib:.3f} | "
-            f"JainFair={min_fair_tib:.3f} | dTiB(60s-2s)={min_delta_tib:+.3f}+/-{min_delta_std:.3f}"
+            f"  {ds_name:<11} (Tr={len(tr_recs):2d}m, Te={len(te_recs):2d}m | {cls_summary}):\n"
+            f"    -> f_dom={f_dom_m:5.1f} Hz | BW={bw_m:5.1f} Hz | PLL R={plv_m:.3f} | SNR={snr_m:4.1f} dB | "
+            f"MeanTiB={min_mean_tib:.2f} | JainFair={min_fair_tib:.3f} | dTiB={min_delta_tib:+.3f}"
         )
-    print("-" * 118)
+    print("-" * 122)
 
 
 def print_evaluation_summary(
-    ppo_train_eval: Dict[str, Dict[str, float]],
-    cpo_train_eval: Dict[str, Dict[str, float]],
-    ppo_test_eval: Dict[str, Dict[str, float]],
-    cpo_test_eval: Dict[str, Dict[str, float]],
+    ppo_train_eval: Dict[str, Dict[str, Any]],
+    cpo_train_eval: Dict[str, Dict[str, Any]],
+    ppo_test_eval: Dict[str, Dict[str, Any]],
+    cpo_test_eval: Dict[str, Dict[str, Any]],
     dataset_configs: List[Dict[str, Any]] = None,
 ) -> None:
-    """Prints the disjoint Train vs. Held-Out Test evaluation comparison table with Multiscale TiB Fairness reward breakdown."""
+    """Prints the disjoint Train vs. Held-Out Test evaluation comparison table with 3-Class breakdown."""
     if dataset_configs is None:
         dataset_configs = REAL_DATASET_CONFIGS
 
-    print("\n" + "=" * 118)
-    print("DISJOINT TRAIN vs. HELD-OUT TEST EVALUATION RESULTS (MULTISCALE TiB & JAIN'S FAIRNESS REWARD)")
-    print("=" * 118)
+    print("\n" + "=" * 122)
+    print("DISJOINT TRAIN vs. HELD-OUT TEST EVALUATION RESULTS (3-CLASS ACOUSTIC VERIFICATION)")
+    print("=" * 122)
     print(
-        f"{'Dataset':<10} | {'Policy':<8} | {'Train Acc':<10} | {'Test Acc':<10} | "
+        f"{'Dataset':<12} | {'Policy':<8} | {'Train Acc':<10} | {'Test Acc':<10} | "
         f"{'Test Cost':<10} | {'Test Reward':<11} | {'Fairness R_f':<12} | {'BW Gate':<10} | {'Target BW':<10}"
     )
-    print("-" * 118)
+    print("-" * 122)
     for cfg in dataset_configs:
         ds_name = cfg["name"]
+        if ds_name not in ppo_test_eval or ds_name not in cpo_test_eval:
+            continue
         p_tr, p_te = ppo_train_eval[ds_name], ppo_test_eval[ds_name]
         c_tr, c_te = cpo_train_eval[ds_name], cpo_test_eval[ds_name]
         print(
-            f"{ds_name:<10} | {'PIML-PPO':<8} | {p_tr['accuracy']:9.1f}% | {p_te['accuracy']:9.1f}% | "
+            f"{ds_name:<12} | {'PIML-PPO':<8} | {p_tr['accuracy']:9.1f}% | {p_te['accuracy']:9.1f}% | "
             f"{p_te['cost']:10.3f} | {p_te['reward']:+11.3f} | {p_te['fairness_regime_reward']:+12.3f} | "
             f"{p_te['bw_gate_hz']:7.1f} Hz | {p_te['target_bw_hz']:7.1f} Hz"
         )
         print(
-            f"{ds_name:<10} | {'PIML-CPO':<8} | {c_tr['accuracy']:9.1f}% | {c_te['accuracy']:9.1f}% | "
+            f"{ds_name:<12} | {'PIML-CPO':<8} | {c_tr['accuracy']:9.1f}% | {c_te['accuracy']:9.1f}% | "
             f"{c_te['cost']:10.3f} | {c_te['reward']:+11.3f} | {c_te['fairness_regime_reward']:+12.3f} | "
             f"{c_te['bw_gate_hz']:7.1f} Hz | {c_te['target_bw_hz']:7.1f} Hz"
         )
-        print("-" * 118)
+        print("-" * 122)
+
+    # 3-Class aggregate verification accuracy
+    if "_classes" in ppo_test_eval and "_classes" in cpo_test_eval:
+        print("  HELD-OUT 3-CLASS CLASSIFICATION ACCURACY BREAKDOWN:")
+        for cls_name in CLASS_NAMES:
+            p_cls = ppo_test_eval["_classes"].get(cls_name, 0.0)
+            c_cls = cpo_test_eval["_classes"].get(cls_name, 0.0)
+            print(f"    • {cls_name:<20}: PIML-PPO = {p_cls:5.1f}% | PIML-CPO = {c_cls:5.1f}%")
+        print("=" * 122)
 
 
 def plot_training_and_eval_results(
@@ -143,14 +163,15 @@ def plot_training_and_eval_results(
 
     axes[1, 0].plot(ppo_hist["accuracy"], label="PIML-PPO (Train)", color="royalblue", lw=2)
     axes[1, 0].plot(cpo_hist["accuracy"], label="PIML-CPO (Train)", color="darkorange", lw=2)
-    axes[1, 0].set_title("Surface vs. Submerged Training Accuracy (%)", fontweight="bold")
+    axes[1, 0].set_title("3-Class Acoustic Training Accuracy (%)", fontweight="bold")
     axes[1, 0].set_xlabel("Epoch")
     axes[1, 0].set_ylabel("Classification Accuracy (%)")
     axes[1, 0].set_ylim(40, 105)
     axes[1, 0].legend()
     axes[1, 0].grid(alpha=0.3)
 
-    ds_names = [c["name"] for c in dataset_configs]
+    valid_ds = [c for c in dataset_configs if c["name"] in ppo_test_eval and c["name"] in cpo_test_eval]
+    ds_names = [c["name"] for c in valid_ds]
     x = np.arange(len(ds_names))
     width = 0.34
     ppo_te_accs = [ppo_test_eval[n]["accuracy"] for n in ds_names]
@@ -159,13 +180,12 @@ def plot_training_and_eval_results(
     bars2 = axes[1, 1].bar(x + width / 2, cpo_te_accs, width, label="PIML-CPO Held-Out Test (%)", color="darkorange", alpha=0.85)
     axes[1, 1].set_xticks(x)
     axes[1, 1].set_xticklabels([
-        f"{n}\n({'Surface' if c['is_surface'] else 'Submerged'})\n"
-        f"J={cpo_test_eval[n]['minute_fair_tib']:.3f}, dTiB={cpo_test_eval[n]['minute_delta_tib']:+.2f}"
-        for n, c in zip(ds_names, dataset_configs)
+        f"{n}\n(J={cpo_test_eval[n]['minute_fair_tib']:.3f}, dTiB={cpo_test_eval[n]['minute_delta_tib']:+.2f})"
+        for n in ds_names
     ])
     axes[1, 1].set_ylim(0, 115)
     axes[1, 1].set_ylabel("Held-Out Test Accuracy (%)")
-    axes[1, 1].set_title("Held-Out Test Accuracy & Multiscale TiB Fairness (Unseen WAVs)", fontweight="bold")
+    axes[1, 1].set_title("Held-Out 3-Class Test Accuracy & TiB Fairness (Unseen WAVs)", fontweight="bold")
     for b in list(bars1) + list(bars2):
         h = b.get_height()
         axes[1, 1].annotate(
@@ -214,7 +234,7 @@ def plot_minute_tib_fairness_diagnostics(
     if dataset_configs is None:
         dataset_configs = REAL_DATASET_CONFIGS
 
-    colors = {"HaifaBay": "#00b4d8", "Croatia": "#f77f00", "AUV": "#a855f7"}
+    colors = {"HaifaBay": "#00b4d8", "Croatia": "#f77f00", "AUV": "#a855f7", "BuoyAmbient": "#10b981"}
 
     fig_h, axes_h = plt.subplots(1, 3, figsize=(15.5, 4.8))
     for cfg in dataset_configs:

@@ -8,21 +8,28 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
+from config import (
+    CLASS_AMBIENT,
+    CLASS_UNDERWATER,
+    CLASS_SURFACE,
+    CLASS_NAMES,
+    NUM_CLASSES,
+)
+
 
 class AcousticPIMLEnv(gym.Env):
     r"""
-    RL Environment operating on pre-extracted DSP, Multiscale TiB Scale-Uniformity Fairness,
-    and 0.5s Digital PLL feature vectors s_t from HaifaBay (Surface), Croatia (Submerged DPV),
-    and AUV (Submerged AUV).
+    Gymnasium RL Environment operating on pre-extracted DSP, Multiscale TiB Scale-Uniformity Fairness,
+    Digital PLL, and Net SNR feature vectors s_t for 3-Class acoustic classification:
+      - Class 0: Ocean Ambient Noise (no boat, or target swallowed at low SNR)
+      - Class 1: Underwater Scooter / DPV (narrow motor harmonic, phase locked, scale invariant TiB)
+      - Class 2: Surface Vessel (cavitation, multipath spreading, negative TiB drift)
 
-    Supports two reward formulations via `reward_mode`:
-      1. `reward_mode="tib_fairness"` (default):
-         Reward is driven directly by the per-minute multiscale Time-in-Band (TiB) &
-         Jain's Fairness Index of TiB scale-uniformity metrics as calculated in:
-           - `comparison_minute_tib_change.png` (\DeltaTiB = TiB(60s) - TiB(2s))
-           - `comparison_minute_tib_histograms.png` (\mu_{TiB}, \sigma_{TiB}, \mathcal{J}_{TiB})
-      2. `reward_mode="pll_watershed"`:
-         Original Carson-PLL + Watershed bandwidth reward.
+    Observation Space (9-D):
+      [mu_tib, jain_tib, delta_tib, std_tib, bw_norm, masd_norm, plv_norm, fstd_norm, snr_norm]
+
+    Action Space (5-D):
+      [delta_f, bw_action_norm, logit_ambient, logit_underwater, logit_surface]
     """
 
     def __init__(
@@ -35,30 +42,34 @@ class AcousticPIMLEnv(gym.Env):
         self.dataset = dataset
         self.balanced_sampling = balanced_sampling
         self.reward_mode = reward_mode
-        self.surface_indices = [i for i, d in enumerate(dataset) if d["metadata"]["is_surface"] == 1]
-        self.submerged_indices = [i for i, d in enumerate(dataset) if d["metadata"]["is_surface"] == 0]
+
+        self.class_indices = {
+            c: [i for i, d in enumerate(dataset) if d["metadata"]["target_class"] == c]
+            for c in range(NUM_CLASSES)
+        }
+        self.available_classes = [c for c, idxs in self.class_indices.items() if len(idxs) > 0]
 
         self.current_rec = None
         self.step_idx = 0
 
+        # Action: [delta_f, bw_action_norm, logit_ambient, logit_underwater, logit_surface]
         self.action_space = spaces.Box(
-            low=np.array([-5.0, -5.0, -5.0], dtype=np.float32),
-            high=np.array([5.0, 5.0, 5.0], dtype=np.float32),
+            low=np.array([-5.0, -5.0, -5.0, -5.0, -5.0], dtype=np.float32),
+            high=np.array([5.0, 5.0, 5.0, 5.0, 5.0], dtype=np.float32),
         )
 
+        # Observation: 9 continuous physical features
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(8,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(9,), dtype=np.float32
         )
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         if options and "rec_idx" in options:
             idx = options["rec_idx"]
-        elif self.balanced_sampling and self.surface_indices and self.submerged_indices:
-            if np.random.rand() < 0.5:
-                idx = int(np.random.choice(self.surface_indices))
-            else:
-                idx = int(np.random.choice(self.submerged_indices))
+        elif self.balanced_sampling and len(self.available_classes) > 1:
+            chosen_cls = int(np.random.choice(self.available_classes))
+            idx = int(np.random.choice(self.class_indices[chosen_cls]))
         else:
             idx = np.random.randint(0, len(self.dataset))
 
@@ -74,8 +85,17 @@ class AcousticPIMLEnv(gym.Env):
         delta_f_action = float(np.clip(action[0], -5.0, 5.0))
         bw_act_norm = float(np.clip(action[1], -5.0, 5.0))
         bw_action_hz = 70.0 + 12.0 * bw_act_norm
-        class_logit = float(np.clip(action[2], -5.0, 5.0))
-        pred_is_surface = 1 if class_logit > 0.0 else 0
+
+        class_logits = np.clip(np.array(action[2:5], dtype=np.float32), -5.0, 5.0)
+        pred_class = int(np.argmax(class_logits))
+        target_class = int(meta["target_class"])
+        is_correct = int(pred_class == target_class)
+
+        # Softmax probabilities over the 3 classes
+        shift_logits = class_logits - np.max(class_logits)
+        exp_l = np.exp(shift_logits)
+        probs = exp_l / (np.sum(exp_l) + 1e-8)
+        p_target = float(probs[target_class])
 
         plv_r = float(step_data["plv_r"])
         sigma_f_hz = float(step_data["inst_freq_std"])
@@ -86,59 +106,59 @@ class AcousticPIMLEnv(gym.Env):
         sigma_tib = float(step_data["minute_std_tib"])
         jain_tib = float(step_data["minute_fair_tib"])
         delta_tib = float(step_data["minute_delta_tib"])
+        snr_peak_db = float(step_data.get("snr_peak", 10.0))
 
-        if self.reward_mode == "tib_fairness":
+        # Bandwidth fit target depending on physical acoustic class
+        if target_class == CLASS_AMBIENT:
+            target_bw_hz = float(np.clip(bw_sliding_hz, 15.0, 35.0))
+        elif target_class == CLASS_UNDERWATER:
+            target_bw_hz = float(np.clip(bw_sliding_hz, 15.0, 42.0))
+        else:  # CLASS_SURFACE
             scale_instability_hz = 65.0 * (
                 (1.0 - jain_tib) * 4.5 + sigma_tib * 2.5 + max(0.0, -delta_tib) * 0.85
             )
             target_bw_hz = float(
                 np.clip(
                     jain_tib * mu_tib * bw_sliding_hz + (1.0 - jain_tib * mu_tib) * (bw_sliding_hz + scale_instability_hz),
-                    12.0,
+                    25.0,
                     125.0,
                 )
             )
-            bw_fit_reward = float(np.exp(-0.04 * abs(bw_action_hz - target_bw_hz)))
 
-            fairness_stability_score = (
-                2.5 * ((jain_tib - 0.960) / 0.035)
-                + 2.0 * ((mu_tib - 0.780) / 0.180)
-                - 2.0 * ((sigma_tib - 0.065) / 0.050)
-                + 2.0 * ((delta_tib + 0.200) / 0.180)
-            )
-            pred_sign = -1.0 if pred_is_surface == 1 else 1.0
-            fairness_regime_reward = 1.25 * float(np.tanh(0.45 * pred_sign * fairness_stability_score))
+        bw_fit_reward = float(np.exp(-0.04 * abs(bw_action_hz - target_bw_hz)))
 
-            y_sign = 1.0 if meta["is_surface"] == 1 else -1.0
-            margin_reward = 0.5 * float(np.tanh(y_sign * class_logit))
-            fairness_weight = float(np.clip(0.85 + 0.30 * jain_tib, 0.85, 1.15))
-            class_reward = fairness_weight * (2.0 if pred_is_surface == meta["is_surface"] else -2.0) + margin_reward
+        # 3-Class Logit Margin Reward: z_target - max_{j != target} z_j
+        other_logits = [float(class_logits[j]) for j in range(NUM_CLASSES) if j != target_class]
+        margin = float(class_logits[target_class] - max(other_logits))
+        margin_reward = 0.65 * float(np.tanh(margin))
 
-            reward = float(bw_fit_reward + fairness_regime_reward + class_reward)
-        else:
-            carson_pll_hz = 2.0 * (sigma_f_hz / max(0.20, plv_r) + meta["fw_est"])
-            target_bw_hz = float(np.clip(0.75 * bw_sliding_hz + 0.25 * carson_pll_hz, 12.0, 125.0))
-            bw_fit_reward = float(np.exp(-0.04 * abs(bw_action_hz - target_bw_hz)))
+        fairness_weight = float(np.clip(0.85 + 0.30 * jain_tib, 0.85, 1.15))
+        class_reward = fairness_weight * (2.0 if is_correct else -2.0) + margin_reward
 
-            phys_surface_score = float(s_t[4]) - 0.35 * float(s_t[6]) - 0.25 * float(s_t[0])
-            fairness_regime_reward = 1.0 if (
-                (phys_surface_score >= 0.0 and pred_is_surface == 1)
-                or (phys_surface_score < 0.0 and pred_is_surface == 0)
-            ) else -0.5
+        # Physics-informed regime reward matching acoustic regime
+        if pred_class == CLASS_AMBIENT:
+            # Ambient expected to have low PLV and baseline low elevation
+            phys_ok = 1.0 if (plv_r < 0.28 and bw_sliding_hz < 45.0) else -0.75
+        elif pred_class == CLASS_UNDERWATER:
+            # Underwater expected to have high Jain fairness, flat TiB, and narrow bandwidth
+            phys_ok = 1.0 if (jain_tib >= 0.94 and bw_sliding_hz < 45.0 and plv_r >= 0.24) else -0.75
+        else:  # CLASS_SURFACE
+            # Surface expected to have broad bandwidth or negative scale drift
+            phys_ok = 1.0 if (bw_sliding_hz >= 48.0 or delta_tib < -0.15) else -0.75
 
-            y_sign = 1.0 if meta["is_surface"] == 1 else -1.0
-            margin_reward = 0.5 * float(np.tanh(y_sign * class_logit))
-            class_reward = (2.0 if pred_is_surface == meta["is_surface"] else -2.0) + margin_reward
+        fairness_regime_reward = 1.0 * phys_ok
+        reward = float(bw_fit_reward + fairness_regime_reward + class_reward)
 
-            reward = float(bw_fit_reward + fairness_regime_reward + class_reward)
-
+        # Physical constraint costs
         c_sound = 1500.0
         max_doppler_shift = (2.0 * max(150.0, meta["f0_true"]) / c_sound) * np.sin(meta["theta_g"]) * meta["max_vz"] + 2.2
         kinematic_violation = 1.0 if abs(delta_f_action) > max_doppler_shift else 0.0
 
         coherence_violation = 1.0 if (
-            ((jain_tib >= 0.98 and mu_tib >= 0.88 and bw_sliding_hz < 45.0) and bw_action_hz > 68.0)
+            ((jain_tib >= 0.98 and mu_tib >= 0.88 and bw_sliding_hz < 35.0) and bw_action_hz > 68.0)
             or (((jain_tib < 0.94 or delta_tib < -0.25) and bw_sliding_hz > 65.0) and bw_action_hz < 35.0)
+            or (pred_class == CLASS_SURFACE and bw_sliding_hz < 30.0 and jain_tib >= 0.98)
+            or (pred_class == CLASS_UNDERWATER and bw_sliding_hz > 80.0 and delta_tib < -0.30)
         ) else 0.0
 
         cost = float(max(kinematic_violation, coherence_violation))
@@ -147,12 +167,18 @@ class AcousticPIMLEnv(gym.Env):
         terminated = self.step_idx >= len(self.current_rec["steps"])
         next_state = (
             self.current_rec["steps"][self.step_idx]["s_t"]
-            if not terminated else np.zeros(8, dtype=np.float32)
+            if not terminated else np.zeros(9, dtype=np.float32)
         )
 
         info = {
             "cost": cost,
-            "correct": int(pred_is_surface == meta["is_surface"]),
+            "correct": is_correct,
+            "pred_class": pred_class,
+            "target_class": target_class,
+            "pred_class_name": CLASS_NAMES[pred_class],
+            "target_class_name": meta["target_class_name"],
+            "p_target": p_target,
+            "probs": probs,
             "dataset_name": meta["dataset_name"],
             "bw_action_hz": bw_action_hz,
             "target_bw_hz": target_bw_hz,
@@ -164,6 +190,7 @@ class AcousticPIMLEnv(gym.Env):
             "minute_std_tib": sigma_tib,
             "minute_fair_tib": jain_tib,
             "minute_delta_tib": delta_tib,
+            "snr_peak": snr_peak_db,
             "freq_verif_err": float(step_data["freq_verif_err"]),
         }
         return next_state, reward, terminated, False, info

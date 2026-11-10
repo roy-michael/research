@@ -10,7 +10,15 @@ import numpy as np
 import scipy.signal as signal
 from scipy.io import wavfile
 
-from config import DSPConfig, REAL_DATASET_CONFIGS
+from config import (
+    DSPConfig,
+    REAL_DATASET_CONFIGS,
+    CLASS_AMBIENT,
+    CLASS_UNDERWATER,
+    CLASS_SURFACE,
+    CLASS_NAMES,
+    NUM_CLASSES,
+)
 from dsp.feature_extractor import OfflineFeatureExtractor
 
 
@@ -21,10 +29,15 @@ def load_real_wav_segment(
     target_fs: float = 4800.0,
 ) -> Tuple[np.ndarray, float]:
     """
-    Memory-maps a WAV file on disk, extracts a `duration_sec` slice starting at
-    `start_sec`, normalizes to zero-mean unit-variance, and resamples to `target_fs`.
+    Reads a WAV file on disk (using mmap when compatible, or direct read for 24-bit PCM),
+    extracts a `duration_sec` slice starting at `start_sec`, normalizes to zero-mean unit-variance,
+    and resamples to `target_fs`.
     """
-    fs, data = wavfile.read(filepath, mmap=True)
+    try:
+        fs, data = wavfile.read(filepath, mmap=True)
+    except Exception:
+        fs, data = wavfile.read(filepath, mmap=False)
+
     n_samples = int(duration_sec * fs)
     max_start = max(0, len(data) - n_samples)
     start_idx = min(max(0, int(start_sec * fs)), max_start)
@@ -50,13 +63,29 @@ def load_real_wav_segment(
     return sig.astype(np.float32), float(target_fs)
 
 
+def synthesize_ambient_ocean_audio(
+    duration: float = 60.0,
+    fs: float = 4800.0,
+) -> Tuple[np.ndarray, float]:
+    """Synthesizes realistic Wenz-Knudsen ambient marine noise with 1/f spectral slope."""
+    n_samples = int(duration * fs)
+    white = np.random.randn(n_samples)
+    b, a = signal.butter(1, 40.0 / (0.5 * fs), btype="high")
+    filtered = signal.lfilter(b, a, white)
+    b_pink, a_pink = [0.049922035, -0.095993537, 0.050612699, -0.004408786], [1.0, -2.494956002, 2.017265875, -0.522189400]
+    pink = signal.lfilter(b_pink, a_pink, filtered)
+    pink -= np.mean(pink)
+    pink /= (np.std(pink) + 1e-8)
+    return pink.astype(np.float32), float(fs)
+
+
 def synthesize_vessel_audio(
     f0: float = 400.0,
     duration: float = 60.0,
     fs: float = 4800.0,
     is_surface_boat: bool = True,
 ) -> Tuple[np.ndarray, float]:
-    """Fallback synthetic audio generator if `D:\\RoyStudies\\Recordings` is not mounted."""
+    """Fallback synthetic audio generator if hydrophone directories are unavailable."""
     t = np.arange(0, duration, 1.0 / fs)
     if is_surface_boat:
         inst_freq_dev = 18.0 * np.sin(2 * np.pi * 0.22 * t) + 14.0 * np.random.randn(len(t))
@@ -80,11 +109,13 @@ def build_train_test_real_datasets(
     dataset_configs: List[Dict[str, Any]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
-    Builds a strict FILE-LEVEL Train / Held-Out Test split across HaifaBay, Croatia, and AUV:
+    Builds a strict FILE-LEVEL Train / Held-Out Test split across real hydrophone datasets:
       - WAV files in each dataset are partitioned into disjoint Train WAV files (~75%)
         and Held-Out Test WAV files (~25%).
-      - No WAV file is shared between `train_dataset` and `test_dataset`, preventing
-        any temporal or file-level data leakage.
+      - Assigns each 60-second episode its true physical 3-class target:
+          * CLASS_AMBIENT (0):    Pure ocean ambient noise or low-SNR noise floor
+          * CLASS_UNDERWATER (1): Underwater Scooter / DPV / submerged vehicle
+          * CLASS_SURFACE (2):    Surface vessel (cavitation, multipath spreading)
     """
     if dsp_cfg is None:
         dsp_cfg = DSPConfig()
@@ -99,7 +130,11 @@ def build_train_test_real_datasets(
         recs = []
         for k in range(num_eps):
             wf = file_list[k % len(file_list)]
-            fs_hdr, data_mmap = wavfile.read(wf, mmap=True)
+            try:
+                fs_hdr, data_mmap = wavfile.read(wf, mmap=True)
+            except Exception:
+                fs_hdr, data_mmap = wavfile.read(wf, mmap=False)
+
             total_sec = len(data_mmap) / float(fs_hdr)
             usable_sec = max(1.0, total_sec - dsp_cfg.segment_duration_sec - 10.0)
             n_per_file = max(1, (num_eps + len(file_list) - 1) // len(file_list))
@@ -114,10 +149,43 @@ def build_train_test_real_datasets(
                 sig, f_low=cfg["f_low"], f_high=cfg["f_high"]
             )
 
+            bw_mean = float(np.mean([s["bw_measured"] for s in steps]))
+            plv_mean = float(np.mean([s["plv_r"] for s in steps]))
+            dtib = float(minute_tib_stats["delta_tib"])
+            masd_mean = float(np.mean([s["masd"] for s in steps]))
+            snr_peak_db = float(dom_lobe.get("snr_peak", dom_lobe["peak_psd"] - dom_lobe.get("ocean_ambient_db", 0.0)))
+
+            # Determine 3-class physical acoustic ground truth:
+            # 0: CLASS_AMBIENT, 1: CLASS_UNDERWATER, 2: CLASS_SURFACE
+            if cfg["name"] == "HaifaBay":
+                if bw_mean >= 48.0 or dtib < -0.18 or masd_mean >= 0.18:
+                    target_class = CLASS_SURFACE
+                else:
+                    # Quiet night-time Haifa Bay interval (pure ocean ambient water)
+                    target_class = CLASS_AMBIENT
+            elif cfg["name"] == "Croatia":
+                if plv_mean >= 0.25 or snr_peak_db >= 4.0:
+                    target_class = CLASS_UNDERWATER
+                else:
+                    target_class = CLASS_AMBIENT
+            elif cfg["name"] == "AUV":
+                if (bw_mean < 45.0 and plv_mean >= 0.28) or snr_peak_db >= 5.0:
+                    target_class = CLASS_UNDERWATER
+                else:
+                    target_class = CLASS_AMBIENT
+            elif cfg["name"] in ("BuoyAmbient", "Ambient") or cfg.get("default_class") == CLASS_AMBIENT:
+                target_class = CLASS_AMBIENT
+            else:
+                target_class = cfg.get("default_class", CLASS_UNDERWATER)
+
             meta = {
                 "dataset_name": cfg["name"],
                 "dataset_id": cfg["dataset_id"],
-                "is_surface": cfg["is_surface"],
+                "target_class": target_class,
+                "target_class_name": CLASS_NAMES[target_class],
+                "is_surface": int(target_class == CLASS_SURFACE),
+                "is_underwater": int(target_class == CLASS_UNDERWATER),
+                "is_ambient": int(target_class == CLASS_AMBIENT),
                 "f0_true": float(dom_lobe["peak_freq"]),
                 "fw_est": cfg["fw_est"],
                 "theta_g": cfg["theta_g"],
@@ -126,6 +194,9 @@ def build_train_test_real_datasets(
                 "start_sec": start_sec,
                 "split": split_label,
                 "minute_tib_stats": minute_tib_stats,
+                "bw_mean": bw_mean,
+                "plv_mean": plv_mean,
+                "snr_peak": snr_peak_db,
             }
             recs.append({"steps": steps, "metadata": meta})
         return recs
@@ -141,25 +212,43 @@ def build_train_test_real_datasets(
                 ("test", dsp_cfg.test_eps_per_dataset, test_dataset),
             ]:
                 for _ in range(num_eps):
-                    sig, _ = synthesize_vessel_audio(
-                        f0=170.0 if cfg["is_surface"] else 720.0,
-                        duration=dsp_cfg.segment_duration_sec,
-                        fs=dsp_cfg.target_fs,
-                        is_surface_boat=bool(cfg["is_surface"]),
-                    )
+                    def_cls = cfg.get("default_class", CLASS_UNDERWATER)
+                    if def_cls == CLASS_AMBIENT:
+                        sig, _ = synthesize_ambient_ocean_audio(
+                            duration=dsp_cfg.segment_duration_sec, fs=dsp_cfg.target_fs
+                        )
+                        target_class = CLASS_AMBIENT
+                    elif def_cls == CLASS_SURFACE:
+                        sig, _ = synthesize_vessel_audio(
+                            f0=170.0, duration=dsp_cfg.segment_duration_sec, fs=dsp_cfg.target_fs, is_surface_boat=True
+                        )
+                        target_class = CLASS_SURFACE
+                    else:
+                        sig, _ = synthesize_vessel_audio(
+                            f0=720.0, duration=dsp_cfg.segment_duration_sec, fs=dsp_cfg.target_fs, is_surface_boat=False
+                        )
+                        target_class = CLASS_UNDERWATER
+
                     steps, dom_lobe, minute_tib_stats = extractor.extract_recording_features(
                         sig, f_low=cfg["f_low"], f_high=cfg["f_high"]
                     )
                     meta = {
                         "dataset_name": cfg["name"],
                         "dataset_id": cfg["dataset_id"],
-                        "is_surface": cfg["is_surface"],
+                        "target_class": target_class,
+                        "target_class_name": CLASS_NAMES[target_class],
+                        "is_surface": int(target_class == CLASS_SURFACE),
+                        "is_underwater": int(target_class == CLASS_UNDERWATER),
+                        "is_ambient": int(target_class == CLASS_AMBIENT),
                         "f0_true": float(dom_lobe["peak_freq"]),
                         "fw_est": cfg["fw_est"],
                         "theta_g": cfg["theta_g"],
                         "max_vz": cfg["max_vz"],
                         "split": split_label,
                         "minute_tib_stats": minute_tib_stats,
+                        "bw_mean": float(np.mean([s["bw_measured"] for s in steps])),
+                        "plv_mean": float(np.mean([s["plv_r"] for s in steps])),
+                        "snr_peak": float(dom_lobe.get("snr_peak", 10.0)),
                     }
                     target_list.append({"steps": steps, "metadata": meta})
             continue
@@ -171,7 +260,7 @@ def build_train_test_real_datasets(
         test_files = wav_files[n_train_files:]
 
         print(
-            f"  -> {cfg['name']:<9}: {n_files:2d} WAV files split into "
+            f"  -> {cfg['name']:<11}: {n_files:2d} WAV files split into "
             f"{len(train_files):2d} Train files ({dsp_cfg.train_eps_per_dataset} eps) & "
             f"{len(test_files):2d} Held-Out Test files ({dsp_cfg.test_eps_per_dataset} eps)..."
         )

@@ -23,6 +23,7 @@ THEME = {
     "HaifaBay": "#00b4d8",
     "Croatia": "#f77f00",
     "AUV": "#a855f7",
+    "BuoyAmbient": "#10b981",
     "target": "#38e08c",
 }
 
@@ -76,7 +77,7 @@ class LiveTrainingDashboard:
 
         self.title_text = self.fig.text(
             0.055, 0.955,
-            "LIVE DRL TRAINING & HELD-OUT VERIFICATION DASHBOARD  •  MULTISCALE TiB & JAIN'S FAIRNESS REWARD",
+            "LIVE DRL TRAINING & HELD-OUT VERIFICATION DASHBOARD  •  3-CLASS ACOUSTIC IDENTIFICATION & TiB FAIRNESS",
             fontsize=12.5, fontweight="bold", color=THEME["text_primary"],
         )
         self.status_text = self.fig.text(

@@ -10,19 +10,19 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Normal
 
-from config import TrainConfig
+from config import TrainConfig, CLASS_NAMES, NUM_CLASSES
 from rl.env import AcousticPIMLEnv
 
 
 class PIMLActorCritic(nn.Module):
     """
-    Actor-Critic network with Dual Critics:
-    - Actor outputs mean action mu(s_t) and log_std
+    Actor-Critic network with Dual Critics for 3-Class Physics-Informed RL:
+    - Actor outputs mean action mu(s_t) of size action_dim (5: [delta_f, bw_norm, logit_0, logit_1, logit_2])
     - Reward Critic estimates V_R(s_t)
     - Cost Critic estimates V_C(s_t) for CPO constraint enforcement
     """
 
-    def __init__(self, state_dim: int = 8, action_dim: int = 3, hidden_dim: int = 64):
+    def __init__(self, state_dim: int = 9, action_dim: int = 5, hidden_dim: int = 64):
         super().__init__()
         self.shared = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
@@ -217,9 +217,11 @@ def train_piml_agent(
     return model, history
 
 
-def evaluate_agent_by_dataset(env: AcousticPIMLEnv, model: PIMLActorCritic) -> Dict[str, Dict[str, float]]:
+def evaluate_agent_by_dataset(env: AcousticPIMLEnv, model: PIMLActorCritic) -> Dict[str, Dict[str, Any]]:
     """Evaluates a trained policy deterministically across every recording in `env`."""
     per_ds: Dict[str, Dict[str, list]] = {}
+    class_correct: Dict[int, list] = {c: [] for c in range(NUM_CLASSES)}
+
     for rec_idx, rec in enumerate(env.dataset):
         ds_name = rec["metadata"]["dataset_name"]
         if ds_name not in per_ds:
@@ -235,6 +237,8 @@ def evaluate_agent_by_dataset(env: AcousticPIMLEnv, model: PIMLActorCritic) -> D
                 "minute_std_tib": [],
                 "minute_fair_tib": [],
                 "minute_delta_tib": [],
+                "pred_classes": [],
+                "target_classes": [],
             }
 
         state, _ = env.reset(options={"rec_idx": rec_idx})
@@ -258,8 +262,11 @@ def evaluate_agent_by_dataset(env: AcousticPIMLEnv, model: PIMLActorCritic) -> D
             per_ds[ds_name]["minute_std_tib"].append(info["minute_std_tib"])
             per_ds[ds_name]["minute_fair_tib"].append(info["minute_fair_tib"])
             per_ds[ds_name]["minute_delta_tib"].append(info["minute_delta_tib"])
+            per_ds[ds_name]["pred_classes"].append(info["pred_class"])
+            per_ds[ds_name]["target_classes"].append(info["target_class"])
+            class_correct[info["target_class"]].append(info["correct"])
 
-    summary: Dict[str, Dict[str, float]] = {}
+    summary: Dict[str, Dict[str, Any]] = {}
     for ds_name, vals in per_ds.items():
         summary[ds_name] = {
             "accuracy": float(np.mean(vals["correct"]) * 100.0),
@@ -274,5 +281,11 @@ def evaluate_agent_by_dataset(env: AcousticPIMLEnv, model: PIMLActorCritic) -> D
             "minute_fair_tib": float(np.mean(vals["minute_fair_tib"])),
             "minute_delta_tib": float(np.mean(vals["minute_delta_tib"])),
         }
+
+    # Also compute aggregate 3-class accuracies
+    summary["_classes"] = {
+        CLASS_NAMES[c]: float(np.mean(class_correct[c]) * 100.0) if len(class_correct[c]) > 0 else 0.0
+        for c in range(NUM_CLASSES)
+    }
     return summary
 

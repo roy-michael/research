@@ -303,7 +303,11 @@ class OfflineFeatureExtractor:
         psd_db, f_grid, df, _ = compute_welch_psd(
             audio_sig, self.fs, bw_cfg["f_low"], bw_cfg["f_high"], bw_cfg["twin_welch"], bw_cfg["df_eval"]
         )
-        _, dom_lobe, _, _ = segment_macro_lobes(psd_db, f_grid, df, bw_cfg["prom_split_db"])
+        _, dom_lobe, _, ocean_ambient_db = segment_macro_lobes(psd_db, f_grid, df, bw_cfg["prom_split_db"])
+        dom_lobe["ocean_ambient_db"] = float(ocean_ambient_db)
+        snr_peak_db = float(dom_lobe["peak_psd"] - ocean_ambient_db)
+        dom_lobe["snr_peak"] = snr_peak_db
+        snr_norm = float((snr_peak_db - 8.0) / 6.0)
 
         num_buffers = len(audio_sig) // self.samples_per_buf
         buffer_features = []
@@ -395,6 +399,7 @@ class OfflineFeatureExtractor:
                 (buffer_features[j]["masd"] - 0.15) * 8.0,
                 (plv_mean - 0.36) * 5.0,
                 (fstd_mean - 11.5) / 3.5,
+                snr_norm,
             ], dtype=np.float32)
 
             state_sequence.append({
@@ -424,6 +429,9 @@ class OfflineFeatureExtractor:
                 "freq_verif_err": buffer_features[j]["freq_verif_err"],
                 "phase_std_rad": buffer_features[j]["phase_std_rad"],
                 "coherence_time": buffer_features[j]["coherence_time"],
+                "masd": buffer_features[j]["masd"],
+                "snr_peak": snr_peak_db,
+                "ocean_ambient_db": float(ocean_ambient_db),
             })
 
         return state_sequence, dom_lobe, minute_tib_stats
