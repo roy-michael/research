@@ -108,7 +108,7 @@ def train_piml_agent(
     }
 
     for epoch_idx in range(train_cfg.epochs):
-        states, actions, log_probs, rewards, costs, dones, accs = [], [], [], [], [], [], []
+        states, actions, log_probs, rewards, costs, dones, accs, targets = [], [], [], [], [], [], [], []
         ds_rollout_accs: Dict[str, list] = {n: [] for n in ds_names}
         state, _ = env.reset()
 
@@ -128,6 +128,7 @@ def train_piml_agent(
             costs.append(info["cost"])
             dones.append(done)
             accs.append(info["correct"])
+            targets.append(info["target_class"])
             if info["dataset_name"] in ds_rollout_accs:
                 ds_rollout_accs[info["dataset_name"]].append(info["correct"])
 
@@ -148,6 +149,7 @@ def train_piml_agent(
         old_log_probs_t = torch.FloatTensor(np.array(log_probs))
         returns_r_t = torch.FloatTensor(returns_r)
         returns_c_t = torch.FloatTensor(returns_c)
+        targets_t = torch.LongTensor(targets)
 
         with torch.no_grad():
             _, _, _, v_r_old, v_c_old = model.get_action_and_values(states_t, actions_t)
@@ -170,8 +172,9 @@ def train_piml_agent(
         else:
             lam = train_cfg.ppo_soft_lambda
 
+        ce_loss_fn = nn.CrossEntropyLoss()
         for _ in range(train_cfg.update_iters):
-            _, new_log_probs, entropy, v_r_pred, v_c_pred = model.get_action_and_values(states_t, actions_t)
+            act_pred, new_log_probs, entropy, v_r_pred, v_c_pred = model.get_action_and_values(states_t, actions_t)
             ratio = torch.exp(new_log_probs - old_log_probs_t)
 
             surr1_r = ratio * adv_r
@@ -180,7 +183,12 @@ def train_piml_agent(
 
             policy_cost_loss = (ratio * adv_c).mean()
 
-            actor_loss = (policy_reward_loss + lam * policy_cost_loss) / (1.0 + lam)
+            # Auxiliary physics-guided classification loss on the actor's action logits [2:5]
+            # to prevent policy gradient dilution in continuous action space
+            cls_logits_pred = model.actor_mu(model.shared(states_t))[:, 2:5]
+            aux_cls_loss = ce_loss_fn(cls_logits_pred, targets_t)
+
+            actor_loss = (policy_reward_loss + lam * policy_cost_loss) / (1.0 + lam) + 0.35 * aux_cls_loss
             critic_loss = 0.5 * ((v_r_pred - returns_r_t) ** 2).mean() + 0.5 * ((v_c_pred - returns_c_t) ** 2).mean()
             total_loss = actor_loss + critic_loss - train_cfg.entropy_coef * entropy.mean()
 
@@ -194,7 +202,14 @@ def train_piml_agent(
         history["accuracy"].append(float(np.mean(accs) * 100.0))
         history["lambda"].append(lam)
 
-        if eval_env is not None:
+        eval_interval = getattr(train_cfg, "eval_interval", 1)
+        should_eval = (eval_env is not None) and (
+            (epoch_idx + 1) % eval_interval == 0
+            or (epoch_idx + 1) == train_cfg.epochs
+            or epoch_idx == 0
+        )
+
+        if should_eval:
             train_eval_epoch = evaluate_agent_by_dataset(env, model)
             test_eval_epoch = evaluate_agent_by_dataset(eval_env, model)
             for n in ds_names:
@@ -206,6 +221,15 @@ def train_piml_agent(
                     history["test_ds_reward"][n].append(test_eval_epoch[n]["reward"])
                     history["test_ds_bw_gate"][n].append(test_eval_epoch[n]["bw_gate_hz"])
                     history["test_ds_target_bw"][n].append(test_eval_epoch[n]["target_bw_hz"])
+        elif eval_env is not None and len(history["test_ds_acc"][ds_names[0]]) > 0:
+            # Propagate last evaluated value to maintain uniform array lengths for live plotting
+            for n in ds_names:
+                history["train_ds_acc"][n].append(history["train_ds_acc"][n][-1])
+                history["test_ds_acc"][n].append(history["test_ds_acc"][n][-1])
+                history["test_ds_cost"][n].append(history["test_ds_cost"][n][-1])
+                history["test_ds_reward"][n].append(history["test_ds_reward"][n][-1])
+                history["test_ds_bw_gate"][n].append(history["test_ds_bw_gate"][n][-1])
+                history["test_ds_target_bw"][n].append(history["test_ds_target_bw"][n][-1])
         else:
             for n in ds_names:
                 tr_acc_n = float(np.mean(ds_rollout_accs[n]) * 100.0) if ds_rollout_accs[n] else 0.0

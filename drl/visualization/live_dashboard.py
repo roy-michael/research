@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
-from config import REAL_DATASET_CONFIGS, OUTPUT_LIVE_DASHBOARD_PATH
+from config import REAL_DATASET_CONFIGS, OUTPUT_LIVE_DASHBOARD_PATH, CLASS_NAMES
 
 THEME = {
     "bg_fig": "#0b0f17",
@@ -24,6 +24,7 @@ THEME = {
     "Croatia": "#f77f00",
     "AUV": "#a855f7",
     "BuoyAmbient": "#10b981",
+    "HearMyShip": "#ec4899",
     "target": "#38e08c",
 }
 
@@ -209,7 +210,7 @@ class LiveTrainingDashboard:
         )
         self.ax_bars.set_xticks(self.x_bars)
         self.ax_bars.set_xticklabels([
-            f"{c['name']}\n({'Surface' if c['is_surface'] else 'Submerged'})"
+            f"{c['name']}\n({CLASS_NAMES[c['default_class']] if 'default_class' in c else ('Surface' if c.get('is_surface') else 'Submerged')})"
             for c in self.dataset_configs
         ])
         self.ax_bars.set_ylim(0, 118)

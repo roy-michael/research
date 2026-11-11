@@ -136,15 +136,15 @@ class AcousticPIMLEnv(gym.Env):
         class_reward = fairness_weight * (2.0 if is_correct else -2.0) + margin_reward
 
         # Physics-informed regime reward matching acoustic regime
+        # Ambient: low SNR or broad low-coherence noise floor
         if pred_class == CLASS_AMBIENT:
-            # Ambient expected to have low PLV and baseline low elevation
-            phys_ok = 1.0 if (plv_r < 0.28 and bw_sliding_hz < 45.0) else -0.75
+            phys_ok = 1.0 if (snr_peak_db < 12.0 or (bw_sliding_hz < 45.0 and delta_tib > -0.15)) else -0.5
         elif pred_class == CLASS_UNDERWATER:
-            # Underwater expected to have high Jain fairness, flat TiB, and narrow bandwidth
-            phys_ok = 1.0 if (jain_tib >= 0.94 and bw_sliding_hz < 45.0 and plv_r >= 0.24) else -0.75
+            # Underwater: narrow bandwidth, high Jain fairness, near-zero drift
+            phys_ok = 1.0 if (bw_sliding_hz < 55.0 and delta_tib > -0.15 and jain_tib >= 0.90) else -0.5
         else:  # CLASS_SURFACE
-            # Surface expected to have broad bandwidth or negative scale drift
-            phys_ok = 1.0 if (bw_sliding_hz >= 48.0 or delta_tib < -0.15) else -0.75
+            # Surface: high SNR (>=14 dB) with broad bandwidth cavitation (>=48 Hz) OR strong negative scale drift (<-0.18)
+            phys_ok = 1.0 if (snr_peak_db >= 14.0 and (bw_sliding_hz >= 48.0 or delta_tib < -0.18)) else -0.5
 
         fairness_regime_reward = 1.0 * phys_ok
         reward = float(bw_fit_reward + fairness_regime_reward + class_reward)
@@ -157,7 +157,7 @@ class AcousticPIMLEnv(gym.Env):
         coherence_violation = 1.0 if (
             ((jain_tib >= 0.98 and mu_tib >= 0.88 and bw_sliding_hz < 35.0) and bw_action_hz > 68.0)
             or (((jain_tib < 0.94 or delta_tib < -0.25) and bw_sliding_hz > 65.0) and bw_action_hz < 35.0)
-            or (pred_class == CLASS_SURFACE and bw_sliding_hz < 30.0 and jain_tib >= 0.98)
+            or (pred_class == CLASS_SURFACE and (bw_sliding_hz < 25.0 or snr_peak_db < 10.0) and delta_tib > -0.05 and jain_tib >= 0.98)
             or (pred_class == CLASS_UNDERWATER and bw_sliding_hz > 80.0 and delta_tib < -0.30)
         ) else 0.0
 

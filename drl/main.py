@@ -32,14 +32,19 @@ warnings.filterwarnings("ignore")
 def main(
     reward_mode: str = "tib_fairness",
     epochs: int = None,
+    eval_interval: int = None,
+    no_cache: bool = False,
+    no_bellhop: bool = False,
     live_plot: bool = True,
     enable_gui: bool = True,
     block_on_finish: bool = False,
 ):
-    dsp_cfg = DSPConfig()
+    dsp_cfg = DSPConfig(use_cache=not no_cache, use_bellhop_synthetic=not no_bellhop)
     train_cfg = TrainConfig(reward_mode=reward_mode)
     if epochs is not None:
         train_cfg.epochs = int(epochs)
+    if eval_interval is not None:
+        train_cfg.eval_interval = int(eval_interval)
 
     print("=" * 118)
     print(
@@ -121,7 +126,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Physics-Informed DRL Pipeline with Live Training & Verification Plot")
     parser.add_argument("--reward-mode", type=str, default="tib_fairness", choices=["tib_fairness", "pll_watershed"])
     parser.add_argument("--epochs", type=int, default=None, help="Number of training epochs")
+    parser.add_argument("--eval-interval", type=int, default=None, help="Evaluation interval in epochs (default: 2)")
+    parser.add_argument("--no-cache", action="store_true", help="Force recomputing extracted features without reading disk cache")
+    parser.add_argument("--no-bellhop", action="store_true", help="Disable BELLHOP synthetic physics augmentation in training")
     parser.add_argument("--no-gui", action="store_true", help="Disable interactive GUI window while still streaming live plot snapshots")
     parser.add_argument("--block", action="store_true", help="Keep the interactive live dashboard window open after completion")
     args = parser.parse_args()
-    main(reward_mode=args.reward_mode, epochs=args.epochs, live_plot=True, enable_gui=not args.no_gui, block_on_finish=args.block)
+    main(
+        reward_mode=args.reward_mode,
+        epochs=args.epochs,
+        eval_interval=args.eval_interval,
+        no_cache=args.no_cache,
+        no_bellhop=args.no_bellhop,
+        live_plot=True,
+        enable_gui=not args.no_gui,
+        block_on_finish=args.block,
+    )

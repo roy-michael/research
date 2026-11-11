@@ -12,13 +12,14 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# DEFAULT_RECORDINGS_DIR = r"D:\RoyStudies\Recordings"
-DEFAULT_RECORDINGS_DIR = r"C:\Users\Roy\Recordings"
+DEFAULT_RECORDINGS_DIR = r"D:\RoyStudies\Recordings"
+# DEFAULT_RECORDINGS_DIR = r"C:\Users\Roy\Recordings"
 OUTPUT_PLOT_PATH = os.path.join(OUTPUT_DIR, "drl_real_datasets_results.png")
 OUTPUT_FAIRNESS_PLOT_PATH = os.path.join(OUTPUT_DIR, "drl_tib_fairness_reward_results.png")
 OUTPUT_FAIRNESS_HIST_PATH = os.path.join(OUTPUT_DIR, "drl_minute_tib_fairness_histograms.png")
 OUTPUT_FAIRNESS_CHANGE_PATH = os.path.join(OUTPUT_DIR, "drl_minute_tib_change_comparison.png")
 OUTPUT_LIVE_DASHBOARD_PATH = os.path.join(OUTPUT_DIR, "drl_live_training_verification.png")
+FEATURE_CACHE_PATH = os.path.join(OUTPUT_DIR, "extracted_features_cache.pkl")
 
 # 3-Class Classification Constants
 CLASS_AMBIENT = 0
@@ -72,6 +73,17 @@ REAL_DATASET_CONFIGS: List[Dict[str, Any]] = [
         "max_vz": 0.10,
         "fw_est": 0.10,
     },
+    {
+        "name": "HearMyShip",
+        "rel_path": r"hear_my_ship\V1",
+        "default_class": CLASS_SURFACE,
+        "dataset_id": 4,
+        "f_low": 20.0,
+        "f_high": 1200.0,
+        "theta_g": float(np.deg2rad(4.0)),
+        "max_vz": 1.50,
+        "fw_est": 0.20,
+    },
 ]
 
 
@@ -93,6 +105,10 @@ class DSPConfig:
     train_eps_per_dataset: int = 18
     test_eps_per_dataset: int = 6
     test_file_fraction: float = 0.25
+    use_cache: bool = True
+    num_workers: int = 4
+    use_bellhop_synthetic: bool = True
+    bellhop_train_eps_per_class: int = 12
 
 
 @dataclass
@@ -114,5 +130,6 @@ class TrainConfig:
     max_grad_norm: float = 0.5
     cost_limit: float = 0.05
     ppo_soft_lambda: float = 0.05
+    eval_interval: int = 2
     seed: int = 42
     dataset_configs: List[Dict[str, Any]] = field(default_factory=lambda: REAL_DATASET_CONFIGS)
