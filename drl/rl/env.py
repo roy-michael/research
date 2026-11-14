@@ -14,19 +14,20 @@ from config import (
     CLASS_SURFACE,
     CLASS_NAMES,
     NUM_CLASSES,
+    STABLE_STATE_INDICES,
 )
 
 
 class AcousticPIMLEnv(gym.Env):
     r"""
     Gymnasium RL Environment operating on pre-extracted DSP, Multiscale TiB Scale-Uniformity Fairness,
-    Digital PLL, and Net SNR feature vectors s_t for 3-Class acoustic classification:
+    and Net SNR feature vectors s_t for 3-Class acoustic classification:
       - Class 0: Ocean Ambient Noise (no boat, or target swallowed at low SNR)
       - Class 1: Underwater Scooter / DPV (narrow motor harmonic, phase locked, scale invariant TiB)
       - Class 2: Surface Vessel (cavitation, multipath spreading, negative TiB drift)
 
-    Observation Space (9-D):
-      [mu_tib, jain_tib, delta_tib, std_tib, bw_norm, masd_norm, plv_norm, fstd_norm, snr_norm]
+    Observation Space (default 6-D stable subset):
+      [mu_tib, jain_tib, delta_tib, std_tib, bw_norm, snr_norm]
 
     Action Space (5-D):
       [delta_f, bw_action_norm, logit_ambient, logit_underwater, logit_surface]
@@ -37,11 +38,13 @@ class AcousticPIMLEnv(gym.Env):
         dataset: List[Dict[str, Any]],
         balanced_sampling: bool = True,
         reward_mode: str = "tib_fairness",
+        state_indices=None,
     ):
         super().__init__()
         self.dataset = dataset
         self.balanced_sampling = balanced_sampling
         self.reward_mode = reward_mode
+        self.state_indices = list(STABLE_STATE_INDICES if state_indices is None else state_indices)
 
         self.class_indices = {
             c: [i for i, d in enumerate(dataset) if d["metadata"]["target_class"] == c]
@@ -58,10 +61,13 @@ class AcousticPIMLEnv(gym.Env):
             high=np.array([5.0, 5.0, 5.0, 5.0, 5.0], dtype=np.float32),
         )
 
-        # Observation: 9 continuous physical features
+        # Observation: continuous physical features (default 6-D stable subset)
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(9,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(len(self.state_indices),), dtype=np.float32
         )
+
+    def _select_state(self, raw_s_t: np.ndarray) -> np.ndarray:
+        return np.asarray(raw_s_t, dtype=np.float32)[self.state_indices]
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -75,7 +81,7 @@ class AcousticPIMLEnv(gym.Env):
 
         self.current_rec = self.dataset[idx]
         self.step_idx = 0
-        return self.current_rec["steps"][0]["s_t"], {}
+        return self._select_state(self.current_rec["steps"][0]["s_t"]), {}
 
     def step(self, action):
         step_data = self.current_rec["steps"][self.step_idx]
@@ -132,8 +138,8 @@ class AcousticPIMLEnv(gym.Env):
         margin = float(class_logits[target_class] - max(other_logits))
         margin_reward = 0.65 * float(np.tanh(margin))
 
-        fairness_weight = float(np.clip(0.85 + 0.30 * jain_tib, 0.85, 1.15))
-        class_reward = fairness_weight * (2.0 if is_correct else -2.0) + margin_reward
+        # Keep class_reward balanced across classes (do not penalize Surface Vessels for lower jain_tib)
+        class_reward = (2.0 if is_correct else -2.0) + margin_reward
 
         # Physics-informed regime reward matching acoustic regime
         # Ambient: low SNR or broad low-coherence noise floor
@@ -143,8 +149,8 @@ class AcousticPIMLEnv(gym.Env):
             # Underwater: narrow bandwidth, high Jain fairness, near-zero drift
             phys_ok = 1.0 if (bw_sliding_hz < 55.0 and delta_tib > -0.15 and jain_tib >= 0.90) else -0.5
         else:  # CLASS_SURFACE
-            # Surface: high SNR (>=14 dB) with broad bandwidth cavitation (>=48 Hz) OR strong negative scale drift (<-0.18)
-            phys_ok = 1.0 if (snr_peak_db >= 14.0 and (bw_sliding_hz >= 48.0 or delta_tib < -0.18)) else -0.5
+            # Surface: aligned with loader.py (>=10.5 dB SNR with broad BW >= 40 Hz or negative TiB drift < -0.15)
+            phys_ok = 1.0 if (snr_peak_db >= 10.5 and (bw_sliding_hz >= 40.0 or delta_tib < -0.15)) else -0.5
 
         fairness_regime_reward = 1.0 * phys_ok
         reward = float(bw_fit_reward + fairness_regime_reward + class_reward)
@@ -166,8 +172,8 @@ class AcousticPIMLEnv(gym.Env):
         self.step_idx += 1
         terminated = self.step_idx >= len(self.current_rec["steps"])
         next_state = (
-            self.current_rec["steps"][self.step_idx]["s_t"]
-            if not terminated else np.zeros(9, dtype=np.float32)
+            self._select_state(self.current_rec["steps"][self.step_idx]["s_t"])
+            if not terminated else np.zeros(len(self.state_indices), dtype=np.float32)
         )
 
         info = {

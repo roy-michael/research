@@ -22,7 +22,7 @@ class PIMLActorCritic(nn.Module):
     - Cost Critic estimates V_C(s_t) for CPO constraint enforcement
     """
 
-    def __init__(self, state_dim: int = 9, action_dim: int = 5, hidden_dim: int = 64):
+    def __init__(self, state_dim: int = 6, action_dim: int = 5, hidden_dim: int = 64):
         super().__init__()
         self.shared = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
@@ -172,7 +172,7 @@ def train_piml_agent(
         else:
             lam = train_cfg.ppo_soft_lambda
 
-        ce_loss_fn = nn.CrossEntropyLoss()
+        ce_loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 1.0, 1.35], dtype=torch.float32))
         for _ in range(train_cfg.update_iters):
             act_pred, new_log_probs, entropy, v_r_pred, v_c_pred = model.get_action_and_values(states_t, actions_t)
             ratio = torch.exp(new_log_probs - old_log_probs_t)
@@ -188,7 +188,7 @@ def train_piml_agent(
             cls_logits_pred = model.actor_mu(model.shared(states_t))[:, 2:5]
             aux_cls_loss = ce_loss_fn(cls_logits_pred, targets_t)
 
-            actor_loss = (policy_reward_loss + lam * policy_cost_loss) / (1.0 + lam) + 0.35 * aux_cls_loss
+            actor_loss = (policy_reward_loss + lam * policy_cost_loss) / (1.0 + lam) + 0.60 * aux_cls_loss
             critic_loss = 0.5 * ((v_r_pred - returns_r_t) ** 2).mean() + 0.5 * ((v_c_pred - returns_c_t) ** 2).mean()
             total_loss = actor_loss + critic_loss - train_cfg.entropy_coef * entropy.mean()
 

@@ -20,6 +20,8 @@ OUTPUT_FAIRNESS_HIST_PATH = os.path.join(OUTPUT_DIR, "drl_minute_tib_fairness_hi
 OUTPUT_FAIRNESS_CHANGE_PATH = os.path.join(OUTPUT_DIR, "drl_minute_tib_change_comparison.png")
 OUTPUT_LIVE_DASHBOARD_PATH = os.path.join(OUTPUT_DIR, "drl_live_training_verification.png")
 FEATURE_CACHE_PATH = os.path.join(OUTPUT_DIR, "extracted_features_cache.pkl")
+PPO_MODEL_PATH = os.path.join(OUTPUT_DIR, "ppo_model.pt")
+CPO_MODEL_PATH = os.path.join(OUTPUT_DIR, "cpo_model.pt")
 
 # 3-Class Classification Constants
 CLASS_AMBIENT = 0
@@ -111,11 +113,18 @@ class DSPConfig:
     bellhop_train_eps_per_class: int = 12
 
 
+# Stable 6-D subset of the 9-D extracted feature vector s_t:
+#   [0: mu_tib, 1: jain_tib, 2: delta_tib, 3: std_tib, 4: bw_mean, 8: snr_peak]
+# Excludes noisy 0.5s slice-level envelope/PLL jitter features: [5: masd, 6: plv_r, 7: inst_freq_std].
+STABLE_STATE_INDICES = (0, 1, 2, 3, 4, 8)
+
+
 @dataclass
 class TrainConfig:
     """Hyperparameters for 3-Class Physics-Informed PPO and CPO agent training."""
     reward_mode: str = "tib_fairness"  # "tib_fairness" or "pll_watershed"
-    state_dim: int = 9  # [mu_tib, jain_tib, delta_tib, std_tib, bw, masd, plv_r, inst_freq_std, snr_peak]
+    state_indices: tuple = STABLE_STATE_INDICES
+    state_dim: int = len(STABLE_STATE_INDICES)  # [mu_tib, jain_tib, delta_tib, std_tib, bw_mean, snr_peak]
     action_dim: int = 5  # [delta_f, bw_action_norm, logit_ambient, logit_underwater, logit_surface]
     num_classes: int = NUM_CLASSES
     hidden_dim: int = 64

@@ -15,8 +15,17 @@ Package structure organized by module and real usage:
 
 import argparse
 import warnings
+import torch
 
-from config import DSPConfig, TrainConfig, OUTPUT_FAIRNESS_PLOT_PATH, OUTPUT_LIVE_DASHBOARD_PATH
+from config import (
+    DSPConfig,
+    TrainConfig,
+    CLASS_NAMES,
+    OUTPUT_FAIRNESS_PLOT_PATH,
+    OUTPUT_LIVE_DASHBOARD_PATH,
+    PPO_MODEL_PATH,
+    CPO_MODEL_PATH,
+)
 from data import build_train_test_real_datasets
 from rl import AcousticPIMLEnv, train_piml_agent, evaluate_agent_by_dataset
 from visualization import (
@@ -60,8 +69,18 @@ def main(
     train_dataset, test_dataset = build_train_test_real_datasets(dsp_cfg, train_cfg.dataset_configs)
     print_feature_summary(train_dataset, test_dataset, train_cfg.dataset_configs)
 
-    train_env = AcousticPIMLEnv(train_dataset, balanced_sampling=True, reward_mode=train_cfg.reward_mode)
-    test_env = AcousticPIMLEnv(test_dataset, balanced_sampling=False, reward_mode=train_cfg.reward_mode)
+    train_env = AcousticPIMLEnv(
+        train_dataset,
+        balanced_sampling=True,
+        reward_mode=train_cfg.reward_mode,
+        state_indices=train_cfg.state_indices,
+    )
+    test_env = AcousticPIMLEnv(
+        test_dataset,
+        balanced_sampling=False,
+        reward_mode=train_cfg.reward_mode,
+        state_indices=train_cfg.state_indices,
+    )
 
     dashboard = None
     if live_plot:
@@ -99,6 +118,21 @@ def main(
 
     if dashboard is not None:
         dashboard.finalize(block=block_on_finish)
+
+    for path, model in ((PPO_MODEL_PATH, ppo_model), (CPO_MODEL_PATH, cpo_model)):
+        torch.save(
+            {
+                "state_dict": model.state_dict(),
+                "state_indices": tuple(train_cfg.state_indices),
+                "state_dim": int(train_cfg.state_dim),
+                "action_dim": int(train_cfg.action_dim),
+                "hidden_dim": int(train_cfg.hidden_dim),
+                "reward_mode": train_cfg.reward_mode,
+                "class_names": list(CLASS_NAMES),
+            },
+            path,
+        )
+        print(f"  [Saved] Trained model checkpoint -> {path}")
 
     print("\n[4/4] Evaluating Final Trained Policies on Disjoint HELD-OUT TEST Files vs. TRAIN Files...")
     ppo_train_eval = evaluate_agent_by_dataset(train_env, ppo_model)
