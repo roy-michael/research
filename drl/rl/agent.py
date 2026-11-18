@@ -16,13 +16,13 @@ from rl.env import AcousticPIMLEnv
 
 class PIMLActorCritic(nn.Module):
     """
-    Actor-Critic network with Dual Critics for 3-Class Physics-Informed RL:
-    - Actor outputs mean action mu(s_t) of size action_dim (5: [delta_f, bw_norm, logit_0, logit_1, logit_2])
+    Actor-Critic network with Dual Critics for 2-Class Physics-Informed RL:
+    - Actor outputs mean action mu(s_t) of size action_dim (4: [delta_f, bw_norm, logit_underwater, logit_surface])
     - Reward Critic estimates V_R(s_t)
     - Cost Critic estimates V_C(s_t) for CPO constraint enforcement
     """
 
-    def __init__(self, state_dim: int = 6, action_dim: int = 5, hidden_dim: int = 64):
+    def __init__(self, state_dim: int = 6, action_dim: int = 4, hidden_dim: int = 64):
         super().__init__()
         self.shared = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
@@ -172,7 +172,7 @@ def train_piml_agent(
         else:
             lam = train_cfg.ppo_soft_lambda
 
-        ce_loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 1.0, 1.35], dtype=torch.float32))
+        ce_loss_fn = nn.CrossEntropyLoss(weight=torch.ones(NUM_CLASSES, dtype=torch.float32))
         for _ in range(train_cfg.update_iters):
             act_pred, new_log_probs, entropy, v_r_pred, v_c_pred = model.get_action_and_values(states_t, actions_t)
             ratio = torch.exp(new_log_probs - old_log_probs_t)
@@ -183,9 +183,9 @@ def train_piml_agent(
 
             policy_cost_loss = (ratio * adv_c).mean()
 
-            # Auxiliary physics-guided classification loss on the actor's action logits [2:5]
+            # Auxiliary physics-guided classification loss on the actor's action logits [2:2+NUM_CLASSES]
             # to prevent policy gradient dilution in continuous action space
-            cls_logits_pred = model.actor_mu(model.shared(states_t))[:, 2:5]
+            cls_logits_pred = model.actor_mu(model.shared(states_t))[:, 2:2 + NUM_CLASSES]
             aux_cls_loss = ce_loss_fn(cls_logits_pred, targets_t)
 
             actor_loss = (policy_reward_loss + lam * policy_cost_loss) / (1.0 + lam) + 0.60 * aux_cls_loss
@@ -306,10 +306,106 @@ def evaluate_agent_by_dataset(env: AcousticPIMLEnv, model: PIMLActorCritic) -> D
             "minute_delta_tib": float(np.mean(vals["minute_delta_tib"])),
         }
 
-    # Also compute aggregate 3-class accuracies
+    # Also compute aggregate 2-class accuracies
     summary["_classes"] = {
         CLASS_NAMES[c]: float(np.mean(class_correct[c]) * 100.0) if len(class_correct[c]) > 0 else 0.0
         for c in range(NUM_CLASSES)
     }
     return summary
+
+
+def compute_precision_recall_curve(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, float]:
+    """
+    Computes binary Precision-Recall curve and Average Precision (AP / AUC-PR)
+    without external dependencies.
+    Returns (precision, recall, average_precision).
+    """
+    y_t = np.asarray(y_true, dtype=np.int32)
+    y_s = np.asarray(y_score, dtype=np.float64)
+    total_pos = int(np.sum(y_t == 1))
+    if total_pos == 0 or len(y_t) == 0:
+        return np.array([1.0, 0.0]), np.array([0.0, 1.0]), 0.0
+
+    order = np.argsort(-y_s, kind="mergesort")
+    y_sorted = y_t[order]
+    tp = np.cumsum(y_sorted == 1, dtype=np.float64)
+    fp = np.cumsum(y_sorted == 0, dtype=np.float64)
+
+    recall_pts = tp / float(total_pos)
+    precision_pts = tp / np.maximum(tp + fp, 1.0)
+
+    precision = np.concatenate([[1.0], precision_pts])
+    recall = np.concatenate([[0.0], recall_pts])
+    ap = float(np.sum((recall[1:] - recall[:-1]) * precision[1:]))
+    return precision, recall, ap
+
+
+def evaluate_precision_recall_by_snr(
+    test_datasets_by_snr: Dict[float, list],
+    model: PIMLActorCritic,
+    state_indices=None,
+    reward_mode: str = "tib_fairness",
+    pos_class: int = 1,
+) -> Dict[float, Dict[str, Any]]:
+    """
+    Evaluates a trained 2-class policy across each SNR level in `test_datasets_by_snr`,
+    computing Precision-Recall curves, Average Precision (AP), Precision, Recall, F1, and Accuracy.
+    """
+    results: Dict[float, Dict[str, Any]] = {}
+    for snr_db in sorted(test_datasets_by_snr.keys()):
+        ds = test_datasets_by_snr[snr_db]
+        env = AcousticPIMLEnv(
+            ds,
+            balanced_sampling=False,
+            reward_mode=reward_mode,
+            state_indices=state_indices,
+        )
+        y_true_list = []
+        y_pred_list = []
+        y_score_list = []
+
+        for rec_idx in range(len(env.dataset)):
+            state, _ = env.reset(options={"rec_idx": rec_idx})
+            done = False
+            while not done:
+                s_tensor = torch.FloatTensor(state).unsqueeze(0)
+                with torch.no_grad():
+                    action, _, _, _, _ = model.get_action_and_values(s_tensor, deterministic=True)
+                act_np = action.squeeze(0).numpy()
+                state, _, terminated, truncated, info = env.step(act_np)
+                done = terminated or truncated
+
+                y_true_list.append(int(info["target_class"] == pos_class))
+                y_pred_list.append(int(info["pred_class"] == pos_class))
+                y_score_list.append(float(info["probs"][pos_class]))
+
+        y_true = np.asarray(y_true_list, dtype=np.int32)
+        y_pred = np.asarray(y_pred_list, dtype=np.int32)
+        y_score = np.asarray(y_score_list, dtype=np.float64)
+
+        tp = int(np.sum((y_true == 1) & (y_pred == 1)))
+        fp = int(np.sum((y_true == 0) & (y_pred == 1)))
+        fn = int(np.sum((y_true == 1) & (y_pred == 0)))
+        tn = int(np.sum((y_true == 0) & (y_pred == 0)))
+
+        precision_val = tp / max(1, tp + fp)
+        recall_val = tp / max(1, tp + fn)
+        f1_val = (2.0 * precision_val * recall_val) / max(1e-12, precision_val + recall_val)
+        acc_val = (tp + tn) / max(1, len(y_true)) * 100.0
+
+        prec_curve, rec_curve, ap = compute_precision_recall_curve(y_true, y_score)
+        results[float(snr_db)] = {
+            "precision_curve": prec_curve,
+            "recall_curve": rec_curve,
+            "average_precision": ap,
+            "precision": float(precision_val),
+            "recall": float(recall_val),
+            "f1": float(f1_val),
+            "accuracy": float(acc_val),
+            "n_samples": int(len(y_true)),
+        }
+    return results
 

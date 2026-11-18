@@ -9,7 +9,6 @@ import gymnasium as gym
 from gymnasium import spaces
 
 from config import (
-    CLASS_AMBIENT,
     CLASS_UNDERWATER,
     CLASS_SURFACE,
     CLASS_NAMES,
@@ -21,16 +20,15 @@ from config import (
 class AcousticPIMLEnv(gym.Env):
     r"""
     Gymnasium RL Environment operating on pre-extracted DSP, Multiscale TiB Scale-Uniformity Fairness,
-    and Net SNR feature vectors s_t for 3-Class acoustic classification:
-      - Class 0: Ocean Ambient Noise (no boat, or target swallowed at low SNR)
-      - Class 1: Underwater Scooter / DPV (narrow motor harmonic, phase locked, scale invariant TiB)
-      - Class 2: Surface Vessel (cavitation, multipath spreading, negative TiB drift)
+    and Net SNR feature vectors s_t for 2-Class acoustic classification:
+      - Class 0: Underwater Vessel (narrow motor harmonic, phase locked, scale invariant TiB)
+      - Class 1: Surface Vessel (cavitation, multipath spreading, negative TiB drift)
 
     Observation Space (default 6-D stable subset):
       [mu_tib, jain_tib, delta_tib, std_tib, bw_norm, snr_norm]
 
-    Action Space (5-D):
-      [delta_f, bw_action_norm, logit_ambient, logit_underwater, logit_surface]
+    Action Space (4-D):
+      [delta_f, bw_action_norm, logit_underwater, logit_surface]
     """
 
     def __init__(
@@ -55,10 +53,10 @@ class AcousticPIMLEnv(gym.Env):
         self.current_rec = None
         self.step_idx = 0
 
-        # Action: [delta_f, bw_action_norm, logit_ambient, logit_underwater, logit_surface]
+        # Action: [delta_f, bw_action_norm, logit_underwater, logit_surface]
         self.action_space = spaces.Box(
-            low=np.array([-5.0, -5.0, -5.0, -5.0, -5.0], dtype=np.float32),
-            high=np.array([5.0, 5.0, 5.0, 5.0, 5.0], dtype=np.float32),
+            low=np.array([-5.0, -5.0, -5.0, -5.0], dtype=np.float32),
+            high=np.array([5.0, 5.0, 5.0, 5.0], dtype=np.float32),
         )
 
         # Observation: continuous physical features (default 6-D stable subset)
@@ -92,12 +90,12 @@ class AcousticPIMLEnv(gym.Env):
         bw_act_norm = float(np.clip(action[1], -5.0, 5.0))
         bw_action_hz = 70.0 + 12.0 * bw_act_norm
 
-        class_logits = np.clip(np.array(action[2:5], dtype=np.float32), -5.0, 5.0)
+        class_logits = np.clip(np.array(action[2:4], dtype=np.float32), -5.0, 5.0)
         pred_class = int(np.argmax(class_logits))
         target_class = int(meta["target_class"])
         is_correct = int(pred_class == target_class)
 
-        # Softmax probabilities over the 3 classes
+        # Softmax probabilities over the 2 classes
         shift_logits = class_logits - np.max(class_logits)
         exp_l = np.exp(shift_logits)
         probs = exp_l / (np.sum(exp_l) + 1e-8)
@@ -115,9 +113,7 @@ class AcousticPIMLEnv(gym.Env):
         snr_peak_db = float(step_data.get("snr_peak", 10.0))
 
         # Bandwidth fit target depending on physical acoustic class
-        if target_class == CLASS_AMBIENT:
-            target_bw_hz = float(np.clip(bw_sliding_hz, 15.0, 35.0))
-        elif target_class == CLASS_UNDERWATER:
+        if target_class == CLASS_UNDERWATER:
             target_bw_hz = float(np.clip(bw_sliding_hz, 15.0, 42.0))
         else:  # CLASS_SURFACE
             scale_instability_hz = 65.0 * (
@@ -133,24 +129,20 @@ class AcousticPIMLEnv(gym.Env):
 
         bw_fit_reward = float(np.exp(-0.04 * abs(bw_action_hz - target_bw_hz)))
 
-        # 3-Class Logit Margin Reward: z_target - max_{j != target} z_j
-        other_logits = [float(class_logits[j]) for j in range(NUM_CLASSES) if j != target_class]
-        margin = float(class_logits[target_class] - max(other_logits))
+        # 2-Class Logit Margin Reward: z_target - z_other
+        margin = float(class_logits[target_class] - class_logits[1 - target_class])
         margin_reward = 0.65 * float(np.tanh(margin))
 
-        # Keep class_reward balanced across classes (do not penalize Surface Vessels for lower jain_tib)
+        # Keep class_reward balanced across classes
         class_reward = (2.0 if is_correct else -2.0) + margin_reward
 
         # Physics-informed regime reward matching acoustic regime
-        # Ambient: low SNR or broad low-coherence noise floor
-        if pred_class == CLASS_AMBIENT:
-            phys_ok = 1.0 if (snr_peak_db < 12.0 or (bw_sliding_hz < 45.0 and delta_tib > -0.15)) else -0.5
-        elif pred_class == CLASS_UNDERWATER:
+        if pred_class == CLASS_UNDERWATER:
             # Underwater: narrow bandwidth, high Jain fairness, near-zero drift
             phys_ok = 1.0 if (bw_sliding_hz < 55.0 and delta_tib > -0.15 and jain_tib >= 0.90) else -0.5
         else:  # CLASS_SURFACE
-            # Surface: aligned with loader.py (>=10.5 dB SNR with broad BW >= 40 Hz or negative TiB drift < -0.15)
-            phys_ok = 1.0 if (snr_peak_db >= 10.5 and (bw_sliding_hz >= 40.0 or delta_tib < -0.15)) else -0.5
+            # Surface: broad BW >= 40 Hz or negative TiB drift < -0.15
+            phys_ok = 1.0 if (bw_sliding_hz >= 40.0 or delta_tib < -0.15) else -0.5
 
         fairness_regime_reward = 1.0 * phys_ok
         reward = float(bw_fit_reward + fairness_regime_reward + class_reward)
@@ -163,7 +155,7 @@ class AcousticPIMLEnv(gym.Env):
         coherence_violation = 1.0 if (
             ((jain_tib >= 0.98 and mu_tib >= 0.88 and bw_sliding_hz < 35.0) and bw_action_hz > 68.0)
             or (((jain_tib < 0.94 or delta_tib < -0.25) and bw_sliding_hz > 65.0) and bw_action_hz < 35.0)
-            or (pred_class == CLASS_SURFACE and (bw_sliding_hz < 25.0 or snr_peak_db < 10.0) and delta_tib > -0.05 and jain_tib >= 0.98)
+            or (pred_class == CLASS_SURFACE and bw_sliding_hz < 25.0 and delta_tib > -0.05 and jain_tib >= 0.98)
             or (pred_class == CLASS_UNDERWATER and bw_sliding_hz > 80.0 and delta_tib < -0.30)
         ) else 0.0
 

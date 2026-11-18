@@ -10,15 +10,19 @@ from visualization.live_dashboard import LiveTrainingDashboard
 from visualization.reporting import (
     print_feature_summary,
     print_evaluation_summary,
+    print_snr_pr_summary,
     plot_training_and_eval_results,
     plot_minute_tib_fairness_diagnostics,
+    plot_precision_recall_vs_snr,
 )
 
 __all__ = [
     "LiveTrainingDashboard",
     "print_feature_summary",
     "print_evaluation_summary",
+    "print_snr_pr_summary",
     "plot_training_and_eval_results",
     "plot_minute_tib_fairness_diagnostics",
+    "plot_precision_recall_vs_snr",
 ]
 

@@ -7,12 +7,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from config import (
+    BELLHOP_DATASET_CONFIGS,
     REAL_DATASET_CONFIGS,
     OUTPUT_PLOT_PATH,
     OUTPUT_FAIRNESS_PLOT_PATH,
     OUTPUT_FAIRNESS_HIST_PATH,
     OUTPUT_FAIRNESS_CHANGE_PATH,
-    CLASS_AMBIENT,
+    OUTPUT_PR_SNR_PLOT_PATH,
     CLASS_UNDERWATER,
     CLASS_SURFACE,
     CLASS_NAMES,
@@ -86,7 +87,7 @@ def print_evaluation_summary(
         dataset_configs = REAL_DATASET_CONFIGS
 
     print("\n" + "=" * 122)
-    print("DISJOINT TRAIN vs. HELD-OUT TEST EVALUATION RESULTS (3-CLASS ACOUSTIC VERIFICATION)")
+    print("DISJOINT TRAIN vs. HELD-OUT TEST EVALUATION RESULTS (2-CLASS ACOUSTIC VERIFICATION)")
     print("=" * 122)
     print(
         f"{'Dataset':<12} | {'Policy':<8} | {'Train Acc':<10} | {'Test Acc':<10} | "
@@ -111,14 +112,102 @@ def print_evaluation_summary(
         )
         print("-" * 122)
 
-    # 3-Class aggregate verification accuracy
+    # 2-Class aggregate verification accuracy
     if "_classes" in ppo_test_eval and "_classes" in cpo_test_eval:
-        print("  HELD-OUT 3-CLASS CLASSIFICATION ACCURACY BREAKDOWN:")
+        print("  HELD-OUT 2-CLASS CLASSIFICATION ACCURACY BREAKDOWN:")
         for cls_name in CLASS_NAMES:
             p_cls = ppo_test_eval["_classes"].get(cls_name, 0.0)
             c_cls = cpo_test_eval["_classes"].get(cls_name, 0.0)
             print(f"    • {cls_name:<20}: PIML-PPO = {p_cls:5.1f}% | PIML-CPO = {c_cls:5.1f}%")
         print("=" * 122)
+
+
+def print_snr_pr_summary(
+    ppo_pr_by_snr: Dict[float, Dict[str, Any]],
+    cpo_pr_by_snr: Dict[float, Dict[str, Any]],
+) -> None:
+    """Prints Precision, Recall, F1, Accuracy, and Average Precision (AP) across all evaluated SNR levels."""
+    print("\n" + "=" * 102)
+    print("2-CLASS BELLHOP HELD-OUT PRECISION-RECALL EVALUATION ACROSS SNR LEVELS (Surface vs. Underwater)")
+    print("=" * 102)
+    print(
+        f"{'SNR (dB)':>8} | {'Policy':<8} | {'Accuracy':>8} | {'Precision':>9} | "
+        f"{'Recall':>8} | {'F1-Score':>8} | {'AP (AUC-PR)':>11}"
+    )
+    print("-" * 102)
+    for snr_db in sorted(ppo_pr_by_snr.keys()):
+        p = ppo_pr_by_snr[snr_db]
+        c = cpo_pr_by_snr[snr_db]
+        print(
+            f"{snr_db:>+8.1f} | {'PIML-PPO':<8} | {p['accuracy']:7.1f}% | {p['precision']:9.3f} | "
+            f"{p['recall']:8.3f} | {p['f1']:8.3f} | {p['average_precision']:11.4f}"
+        )
+        print(
+            f"{snr_db:>+8.1f} | {'PIML-CPO':<8} | {c['accuracy']:7.1f}% | {c['precision']:9.3f} | "
+            f"{c['recall']:8.3f} | {c['f1']:8.3f} | {c['average_precision']:11.4f}"
+        )
+        print("-" * 102)
+
+
+def plot_precision_recall_vs_snr(
+    ppo_pr_by_snr: Dict[float, Dict[str, Any]],
+    cpo_pr_by_snr: Dict[float, Dict[str, Any]],
+    out_fig_path: str = OUTPUT_PR_SNR_PLOT_PATH,
+) -> str:
+    """
+    Plots Precision-Recall curves across various SNR levels for PIML-PPO and PIML-CPO
+    on the 2-Class (Surface Vessel vs. Underwater Vessel) BELLHOP test benchmark.
+    """
+    snr_levels = sorted(ppo_pr_by_snr.keys())
+    cmap = plt.cm.viridis(np.linspace(0.08, 0.95, len(snr_levels)))
+
+    fig, axes = plt.subplots(1, 2, figsize=(15.0, 6.2), sharey=True)
+    panels = [
+        (axes[0], "PIML-PPO Precision-Recall Across SNR Levels", ppo_pr_by_snr),
+        (axes[1], "PIML-CPO Precision-Recall Across SNR Levels", cpo_pr_by_snr),
+    ]
+
+    # Iso-F1 reference curves
+    f_recall = np.linspace(0.05, 1.0, 200)
+    for f1_val in (0.4, 0.6, 0.8):
+        f_prec = (f1_val * f_recall) / (2.0 * f_recall - f1_val + 1e-12)
+        valid = (f_prec >= 0.0) & (f_prec <= 1.0) & (2.0 * f_recall > f1_val)
+        for ax in axes:
+            ax.plot(f_recall[valid], f_prec[valid], color="gray", ls=":", lw=0.9, alpha=0.55)
+            if np.any(valid):
+                idx_lbl = np.where(valid)[0][-1]
+                ax.text(0.98, min(0.98, f_prec[idx_lbl] + 0.015), f"F1={f1_val:.1f}",
+                        fontsize=7.5, color="gray", ha="right", alpha=0.75)
+
+    for ax, title, pr_dict in panels:
+        for color, snr_db in zip(cmap, snr_levels):
+            res = pr_dict[snr_db]
+            ax.plot(
+                res["recall_curve"],
+                res["precision_curve"],
+                color=color,
+                lw=2.2,
+                label=f"SNR = {snr_db:+.0f} dB (AP = {res['average_precision']:.3f}, F1 = {res['f1']:.2f})",
+            )
+        ax.set_title(title, fontweight="bold", fontsize=11.5)
+        ax.set_xlabel("Recall (Surface Vessel)", fontsize=10.5)
+        ax.set_xlim(0.0, 1.02)
+        ax.set_ylim(0.0, 1.05)
+        ax.grid(alpha=0.3)
+        ax.legend(loc="lower left", fontsize=8.5, framealpha=0.92)
+
+    axes[0].set_ylabel("Precision (Surface Vessel)", fontsize=10.5)
+    fig.suptitle(
+        "2-Class BELLHOP Acoustic Classification: Precision-Recall Curves by SNR Level",
+        fontsize=13.0,
+        fontweight="bold",
+        y=0.98,
+    )
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.savefig(out_fig_path, dpi=300)
+    plt.close(fig)
+    print(f"[Saved] Precision-Recall vs. SNR Graph: {out_fig_path}")
+    return out_fig_path
 
 
 def plot_training_and_eval_results(
@@ -163,7 +252,7 @@ def plot_training_and_eval_results(
 
     axes[1, 0].plot(ppo_hist["accuracy"], label="PIML-PPO (Train)", color="royalblue", lw=2)
     axes[1, 0].plot(cpo_hist["accuracy"], label="PIML-CPO (Train)", color="darkorange", lw=2)
-    axes[1, 0].set_title("3-Class Acoustic Training Accuracy (%)", fontweight="bold")
+    axes[1, 0].set_title("2-Class Acoustic Training Accuracy (%)", fontweight="bold")
     axes[1, 0].set_xlabel("Epoch")
     axes[1, 0].set_ylabel("Classification Accuracy (%)")
     axes[1, 0].set_ylim(40, 105)
@@ -185,7 +274,7 @@ def plot_training_and_eval_results(
     ])
     axes[1, 1].set_ylim(0, 115)
     axes[1, 1].set_ylabel("Held-Out Test Accuracy (%)")
-    axes[1, 1].set_title("Held-Out 3-Class Test Accuracy & TiB Fairness (Unseen WAVs)", fontweight="bold")
+    axes[1, 1].set_title("Held-Out 2-Class Test Accuracy & TiB Fairness", fontweight="bold")
     for b in list(bars1) + list(bars2):
         h = b.get_height()
         axes[1, 1].annotate(
@@ -234,7 +323,13 @@ def plot_minute_tib_fairness_diagnostics(
     if dataset_configs is None:
         dataset_configs = REAL_DATASET_CONFIGS
 
-    colors = {"HaifaBay": "#00b4d8", "Croatia": "#f77f00", "AUV": "#a855f7", "BuoyAmbient": "#10b981"}
+    colors = {
+        "HaifaBay": "#00b4d8",
+        "Croatia": "#f77f00",
+        "AUV": "#a855f7",
+        "BELLHOP_Underwater": "#f77f00",
+        "BELLHOP_Surface": "#00b4d8",
+    }
 
     fig_h, axes_h = plt.subplots(1, 3, figsize=(15.5, 4.8))
     for cfg in dataset_configs:

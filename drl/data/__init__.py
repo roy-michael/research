@@ -8,11 +8,13 @@ from data.loader import (
     load_real_wav_segment,
     synthesize_vessel_audio,
     build_train_test_real_datasets,
+    build_bellhop_train_test_datasets,
 )
 
 __all__ = [
     "load_real_wav_segment",
     "synthesize_vessel_audio",
     "build_train_test_real_datasets",
+    "build_bellhop_train_test_datasets",
 ]
 

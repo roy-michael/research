@@ -7,12 +7,18 @@ Reinforcement Learning package (`drl.rl`):
 """
 
 from rl.env import AcousticPIMLEnv
-from rl.agent import PIMLActorCritic, train_piml_agent, evaluate_agent_by_dataset
+from rl.agent import (
+    PIMLActorCritic,
+    train_piml_agent,
+    evaluate_agent_by_dataset,
+    evaluate_precision_recall_by_snr,
+)
 
 __all__ = [
     "AcousticPIMLEnv",
     "PIMLActorCritic",
     "train_piml_agent",
     "evaluate_agent_by_dataset",
+    "evaluate_precision_recall_by_snr",
 ]
 

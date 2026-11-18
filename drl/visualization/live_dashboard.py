@@ -23,7 +23,8 @@ THEME = {
     "HaifaBay": "#00b4d8",
     "Croatia": "#f77f00",
     "AUV": "#a855f7",
-    "BuoyAmbient": "#10b981",
+    "BELLHOP_Underwater": "#f77f00",
+    "BELLHOP_Surface": "#00b4d8",
     "HearMyShip": "#ec4899",
     "target": "#38e08c",
 }
@@ -78,8 +79,8 @@ class LiveTrainingDashboard:
 
         self.title_text = self.fig.text(
             0.055, 0.955,
-            "LIVE DRL TRAINING & HELD-OUT VERIFICATION DASHBOARD  •  3-CLASS ACOUSTIC IDENTIFICATION & TiB FAIRNESS",
-            fontsize=12.5, fontweight="bold", color=THEME["text_primary"],
+            "LIVE DRL TRAINING & HELD-OUT VERIFICATION DASHBOARD  •  2-CLASS BELLHOP ACOUSTIC IDENTIFICATION (SURFACE vs. UNDERWATER)",
+            fontsize=12.0, fontweight="bold", color=THEME["text_primary"],
         )
         self.status_text = self.fig.text(
             0.055, 0.925,

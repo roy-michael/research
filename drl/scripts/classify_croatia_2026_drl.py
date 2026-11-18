@@ -53,7 +53,7 @@ def load_trained_model(checkpoint_path: str):
     ckpt = torch.load(checkpoint_path, map_location="cpu")
     state_indices = list(ckpt.get("state_indices", STABLE_STATE_INDICES))
     state_dim = int(ckpt.get("state_dim", len(state_indices)))
-    action_dim = int(ckpt.get("action_dim", 5))
+    action_dim = int(ckpt.get("action_dim", 4))
     hidden_dim = int(ckpt.get("hidden_dim", 64))
 
     model = PIMLActorCritic(state_dim=state_dim, action_dim=action_dim, hidden_dim=hidden_dim)
@@ -120,7 +120,7 @@ def classify_file_with_drl(
             actions, _, _, _, _ = model.get_action_and_values(s_tensor, deterministic=True)
             actions_np = actions.cpu().numpy()
 
-        logits = np.clip(actions_np[:, 2:5], -5.0, 5.0)
+        logits = np.clip(actions_np[:, 2:2 + len(CLASS_NAMES)], -5.0, 5.0)
         shift = logits - np.max(logits, axis=1, keepdims=True)
         exp_l = np.exp(shift)
         probs = exp_l / (np.sum(exp_l, axis=1, keepdims=True) + 1e-8)
@@ -141,9 +141,8 @@ def classify_file_with_drl(
             "minute": m_idx + 1,
             "pred_class": min_pred,
             "pred_class_name": CLASS_NAMES[min_pred],
-            "p_ambient": float(mean_probs[0]),
-            "p_underwater": float(mean_probs[1]),
-            "p_surface": float(mean_probs[2]),
+            "p_underwater": float(mean_probs[0]),
+            "p_surface": float(mean_probs[1]),
             "mean_bw_pred_hz": float(np.mean(bw_preds)),
             "minute_mean_tib": float(minute_tib_stats["minute_mean_tib"]),
             "minute_fair_tib": float(minute_tib_stats["minute_fair_tib"]),
@@ -151,7 +150,7 @@ def classify_file_with_drl(
         })
         print(
             f"  Min {m_idx + 1:2d}: {CLASS_NAMES[min_pred]:18s} "
-            f"(P=[Amb:{mean_probs[0]:.2f}, UW:{mean_probs[1]:.2f}, Surf:{mean_probs[2]:.2f}] | "
+            f"(P=[UW:{mean_probs[0]:.2f}, Surf:{mean_probs[1]:.2f}] | "
             f"BW_pred={np.mean(bw_preds):5.1f} Hz | TiB={minute_tib_stats['minute_mean_tib']:.3f}, "
             f"Fair={minute_tib_stats['minute_fair_tib']:.3f}, SNR={steps[0]['snr_peak']:5.1f} dB)"
         )
@@ -161,21 +160,18 @@ def classify_file_with_drl(
     step_probs = np.asarray(step_probs, dtype=np.float64)
 
     n_total = max(1, len(step_classes))
-    n_amb = int(np.sum(step_classes == 0))
-    n_uw = int(np.sum(step_classes == 1))
-    n_surf = int(np.sum(step_classes == 2))
+    n_uw = int(np.sum(step_classes == 0))
+    n_surf = int(np.sum(step_classes == 1))
     print(f"Summary for {filename} ({n_total} x 0.5s steps):")
-    print(f"  - Ambient Noise      : {n_amb:4d} ({n_amb / n_total * 100:5.1f}%)")
-    print(f"  - Underwater Scooter : {n_uw:4d} ({n_uw / n_total * 100:5.1f}%)")
+    print(f"  - Underwater Vessel  : {n_uw:4d} ({n_uw / n_total * 100:5.1f}%)")
     print(f"  - Surface Vessel     : {n_surf:4d} ({n_surf / n_total * 100:5.1f}%)")
 
     # Save 2-panel classification & probability plot
     fig, (ax1, ax2) = plt.subplots(
         2, 1, figsize=(14, 7.5), sharex=True, gridspec_kw={"height_ratios": [1.1, 0.9]}
     )
-    ax1.plot(step_times_min, step_probs[:, 0], color="#4C72B0", linewidth=1.3, label="P(Ambient Noise)")
-    ax1.plot(step_times_min, step_probs[:, 1], color="#238636", linewidth=1.5, label="P(Underwater Scooter)")
-    ax1.plot(step_times_min, step_probs[:, 2], color="#da3633", linewidth=1.5, label="P(Surface Vessel)")
+    ax1.plot(step_times_min, step_probs[:, 0], color="#238636", linewidth=1.5, label="P(Underwater Vessel)")
+    ax1.plot(step_times_min, step_probs[:, 1], color="#da3633", linewidth=1.5, label="P(Surface Vessel)")
     ax1.set_ylim(-0.02, 1.05)
     ax1.set_ylabel("Policy Class Probability", fontsize=10, fontweight="bold")
     ax1.set_title(f"DRL Classification Over Time: {filename}", fontsize=12.5, fontweight="bold")
@@ -185,20 +181,17 @@ def classify_file_with_drl(
     bar_w = dsp_cfg.buffer_sec / 60.0
     for t_m, c in zip(step_times_min, step_classes):
         if c == 1:
-            ax2.bar(t_m, 1.0, width=bar_w, color="#238636", alpha=0.85)
-        elif c == 2:
-            ax2.bar(t_m, 2.0, width=bar_w, color="#da3633", alpha=0.85)
+            ax2.bar(t_m, 1.0, width=bar_w, color="#da3633", alpha=0.85)
         else:
-            ax2.bar(t_m, 0.25, width=bar_w, color="#6e7681", alpha=0.55)
+            ax2.bar(t_m, 0.5, width=bar_w, color="#238636", alpha=0.85)
 
-    ax2.set_ylim(-0.2, 2.4)
-    ax2.set_yticks([0.25, 1.0, 2.0])
-    ax2.set_yticklabels(["Ambient Noise", "Underwater Scooter", "Surface Vessel"], fontsize=9.5, fontweight="bold")
+    ax2.set_ylim(-0.1, 1.4)
+    ax2.set_yticks([0.5, 1.0])
+    ax2.set_yticklabels(["Underwater Vessel", "Surface Vessel"], fontsize=9.5, fontweight="bold")
     ax2.set_xlabel("Elapsed Time (Minutes)", fontsize=10, fontweight="bold")
     ax2.grid(True, axis="x", linestyle="--", alpha=0.35)
     ax2.legend(
         handles=[
-            Patch(facecolor="#6e7681", label=f"Ambient ({n_amb / n_total * 100:.1f}%)"),
             Patch(facecolor="#238636", label=f"Underwater ({n_uw / n_total * 100:.1f}%)"),
             Patch(facecolor="#da3633", label=f"Surface ({n_surf / n_total * 100:.1f}%)"),
         ],

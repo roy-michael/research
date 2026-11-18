@@ -23,16 +23,24 @@ from config import (
     CLASS_NAMES,
     OUTPUT_FAIRNESS_PLOT_PATH,
     OUTPUT_LIVE_DASHBOARD_PATH,
+    OUTPUT_PR_SNR_PLOT_PATH,
     PPO_MODEL_PATH,
     CPO_MODEL_PATH,
 )
-from data import build_train_test_real_datasets
-from rl import AcousticPIMLEnv, train_piml_agent, evaluate_agent_by_dataset
+from data import build_bellhop_train_test_datasets
+from rl import (
+    AcousticPIMLEnv,
+    train_piml_agent,
+    evaluate_agent_by_dataset,
+    evaluate_precision_recall_by_snr,
+)
 from visualization import (
     LiveTrainingDashboard,
     print_feature_summary,
     print_evaluation_summary,
+    print_snr_pr_summary,
     plot_training_and_eval_results,
+    plot_precision_recall_vs_snr,
 )
 
 warnings.filterwarnings("ignore")
@@ -57,16 +65,17 @@ def main(
 
     print("=" * 118)
     print(
-        f"PHYSICS-INFORMED DRL PIPELINE ON REAL ACOUSTIC DATASETS "
-        f"(REWARD MODE: {train_cfg.reward_mode.upper()} | DISJOINT TRAIN / TEST SPLIT)"
+        f"2-CLASS PHYSICS-INFORMED DRL PIPELINE ON BELLHOP SYNTHETIC DATA "
+        f"(SURFACE vs. UNDERWATER | REWARD: {train_cfg.reward_mode.upper()})"
     )
     print("=" * 118)
     print(
-        "[1/4] Building Disjoint Train (75%) & Held-Out Test (25%) 1-Minute Datasets "
+        "[1/4] Building BELLHOP 2-Class Synthetic Training Set & Multi-SNR Held-Out Test Sets "
         "(Watershed + Multiscale TiB Fairness [2s..60s] + Digital PLL)..."
     )
 
-    train_dataset, test_dataset = build_train_test_real_datasets(dsp_cfg, train_cfg.dataset_configs)
+    train_dataset, test_datasets_by_snr = build_bellhop_train_test_datasets(dsp_cfg)
+    test_dataset = [rec for snr in sorted(test_datasets_by_snr.keys()) for rec in test_datasets_by_snr[snr]]
     print_feature_summary(train_dataset, test_dataset, train_cfg.dataset_configs)
 
     train_env = AcousticPIMLEnv(
@@ -134,7 +143,7 @@ def main(
         )
         print(f"  [Saved] Trained model checkpoint -> {path}")
 
-    print("\n[4/4] Evaluating Final Trained Policies on Disjoint HELD-OUT TEST Files vs. TRAIN Files...")
+    print("\n[4/4] Evaluating Final Trained Policies Across SNR Levels (Precision-Recall Curves)...")
     ppo_train_eval = evaluate_agent_by_dataset(train_env, ppo_model)
     cpo_train_eval = evaluate_agent_by_dataset(train_env, cpo_model)
     ppo_test_eval = evaluate_agent_by_dataset(test_env, ppo_model)
@@ -143,6 +152,22 @@ def main(
     print_evaluation_summary(
         ppo_train_eval, cpo_train_eval, ppo_test_eval, cpo_test_eval, train_cfg.dataset_configs
     )
+
+    ppo_pr_by_snr = evaluate_precision_recall_by_snr(
+        test_datasets_by_snr,
+        ppo_model,
+        state_indices=train_cfg.state_indices,
+        reward_mode=train_cfg.reward_mode,
+    )
+    cpo_pr_by_snr = evaluate_precision_recall_by_snr(
+        test_datasets_by_snr,
+        cpo_model,
+        state_indices=train_cfg.state_indices,
+        reward_mode=train_cfg.reward_mode,
+    )
+    print_snr_pr_summary(ppo_pr_by_snr, cpo_pr_by_snr)
+    plot_precision_recall_vs_snr(ppo_pr_by_snr, cpo_pr_by_snr, out_fig_path=OUTPUT_PR_SNR_PLOT_PATH)
+
     plot_training_and_eval_results(
         ppo_hist,
         cpo_hist,
