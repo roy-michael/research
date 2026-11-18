@@ -4,6 +4,11 @@
 
 The Physics-Informed Deep Reinforcement Learning (DRL) detector classifies underwater acoustic recordings into three physical regimes—**Ambient Ocean Noise (`0`)**, **Underwater Scooter / DPV (`1`)**, and **Surface Vessel (`2`)**—while simultaneously predicting a physical tracking bandwidth (`bw_action_hz`) and Doppler frequency shift (`delta_f`).
 
+![DRL Detector Architecture Flowchart](output/drl_architecture_flowchart.png)
+
+<details>
+<summary>View Mermaid Flowchart Source</summary>
+
 ```mermaid
 flowchart TD
     %% 1. Audio Loading
@@ -72,6 +77,8 @@ flowchart TD
         DET --> OUT["Per-Minute Majority Vote,<br/>Timeline Plots & CSV Export"]
     end
 ```
+
+</details>
 
 ---
 

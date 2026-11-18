@@ -12,8 +12,8 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-DEFAULT_RECORDINGS_DIR = r"D:\RoyStudies\Recordings"
-# DEFAULT_RECORDINGS_DIR = r"C:\Users\Roy\Recordings"
+# DEFAULT_RECORDINGS_DIR = r"D:\RoyStudies\Recordings"
+DEFAULT_RECORDINGS_DIR = r"C:\Users\Roy\Recordings"
 OUTPUT_PLOT_PATH = os.path.join(OUTPUT_DIR, "drl_real_datasets_results.png")
 OUTPUT_FAIRNESS_PLOT_PATH = os.path.join(OUTPUT_DIR, "drl_tib_fairness_reward_results.png")
 OUTPUT_FAIRNESS_HIST_PATH = os.path.join(OUTPUT_DIR, "drl_minute_tib_fairness_histograms.png")
@@ -33,7 +33,10 @@ NUM_CLASSES = 3
 REAL_DATASET_CONFIGS: List[Dict[str, Any]] = [
     {
         "name": "HaifaBay",
-        "rel_path": r"20250805_Haifa_bay_LME\extracted-2",
+        "rel_path": r"20250805_Haifa_bay_LME",
+        "recursive": False,
+        "train_eps": 36,
+        "test_eps": 12,
         "default_class": CLASS_SURFACE,
         "dataset_id": 0,
         "f_low": 20.0,
@@ -63,6 +66,8 @@ REAL_DATASET_CONFIGS: List[Dict[str, Any]] = [
         "theta_g": float(np.deg2rad(14.0)),
         "max_vz": 0.25,
         "fw_est": 0.12,
+        "train_eps": 36,
+        "test_eps": 12,
     },
     {
         "name": "BuoyAmbient",
@@ -74,6 +79,8 @@ REAL_DATASET_CONFIGS: List[Dict[str, Any]] = [
         "theta_g": float(np.deg2rad(5.0)),
         "max_vz": 0.10,
         "fw_est": 0.10,
+        "train_eps": 36,
+        "test_eps": 12,
     },
     {
         "name": "HearMyShip",
@@ -85,6 +92,8 @@ REAL_DATASET_CONFIGS: List[Dict[str, Any]] = [
         "theta_g": float(np.deg2rad(4.0)),
         "max_vz": 1.50,
         "fw_est": 0.20,
+        "train_eps": 36,
+        "test_eps": 12,
     },
 ]
 
@@ -129,7 +138,7 @@ class TrainConfig:
     num_classes: int = NUM_CLASSES
     hidden_dim: int = 64
     epochs: int = 45
-    steps_per_epoch: int = 480
+    steps_per_epoch: int = 1200
     update_iters: int = 8
     lr_actor_critic: float = 8e-4
     lr_lambda: float = 8e-2

@@ -295,9 +295,9 @@ def build_train_test_real_datasets(
         # 0: CLASS_AMBIENT, 1: CLASS_UNDERWATER, 2: CLASS_SURFACE
         if cfg["name"] == "HaifaBay":
             # Haifa Bay is a shallow commercial shipping fairway.
-            # Segments with significant spectral energy (SNR >= 12 dB or broad BW >= 40 Hz or negative TiB drift)
-            # are commercial surface vessels. Calm baseline intervals (SNR < 12 dB and narrow BW < 40 Hz) are ambient.
-            if snr_peak_db >= 12.0 or bw_mean >= 40.0 or dtib < -0.15:
+            # Active surface vessel passes exhibit broad dual-level bandwidth (BW >= 48 Hz) or negative TiB drift.
+            # Quiet/stationary no-boat segments (narrow BW < 48 Hz without TiB drift) are ambient noise.
+            if bw_mean >= 48.0 or dtib < -0.15:
                 target_class = CLASS_SURFACE
             else:
                 target_class = CLASS_AMBIENT
@@ -360,13 +360,19 @@ def build_train_test_real_datasets(
 
     for cfg in dataset_configs:
         ds_dir = os.path.join(dsp_cfg.base_dir, cfg["rel_path"])
-        wav_files = sorted(glob.glob(os.path.join(ds_dir, "**", "*.wav"), recursive=True))
+        if cfg.get("recursive", True):
+            wav_files = sorted(glob.glob(os.path.join(ds_dir, "**", "*.wav"), recursive=True))
+        else:
+            wav_files = sorted(glob.glob(os.path.join(ds_dir, "*.wav")))
+
+        n_tr_eps = int(cfg.get("train_eps", dsp_cfg.train_eps_per_dataset))
+        n_te_eps = int(cfg.get("test_eps", dsp_cfg.test_eps_per_dataset))
 
         if not wav_files:
             print(f"  [Warning] No WAV files found in {ds_dir}; using synthetic fallback for {cfg['name']}.")
             for split_label, num_eps, target_list in [
-                ("train", dsp_cfg.train_eps_per_dataset, train_dataset),
-                ("test", dsp_cfg.test_eps_per_dataset, test_dataset),
+                ("train", n_tr_eps, train_dataset),
+                ("test", n_te_eps, test_dataset),
             ]:
                 for _ in range(num_eps):
                     def_cls = cfg.get("default_class", CLASS_UNDERWATER)
@@ -437,11 +443,11 @@ def build_train_test_real_datasets(
 
         print(
             f"  -> {cfg['name']:<11}: {n_files:2d} WAV files split into "
-            f"{len(train_files):2d} Train files ({dsp_cfg.train_eps_per_dataset} eps) & "
-            f"{len(test_files):2d} Held-Out Test files ({dsp_cfg.test_eps_per_dataset} eps)..."
+            f"{len(train_files):2d} Train files ({n_tr_eps} eps) & "
+            f"{len(test_files):2d} Held-Out Test files ({n_te_eps} eps)..."
         )
-        train_dataset.extend(_sample_from_files(train_files, dsp_cfg.train_eps_per_dataset, cfg, "train"))
-        test_dataset.extend(_sample_from_files(test_files, dsp_cfg.test_eps_per_dataset, cfg, "test"))
+        train_dataset.extend(_sample_from_files(train_files, n_tr_eps, cfg, "train"))
+        test_dataset.extend(_sample_from_files(test_files, n_te_eps, cfg, "test"))
 
     # Optional: BELLHOP Physics-Informed Synthetic Augmentation for Training
     if getattr(dsp_cfg, "use_bellhop_synthetic", True):

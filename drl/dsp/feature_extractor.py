@@ -300,14 +300,30 @@ class OfflineFeatureExtractor:
         bw_cfg["slice_dur_sec"] = self.buffer_sec
         bw_cfg["tib_tolerance_hz"] = self.tol_hz
 
-        psd_db, f_grid, df, _ = compute_welch_psd(
-            audio_sig, self.fs, bw_cfg["f_low"], bw_cfg["f_high"], bw_cfg["twin_welch"], bw_cfg["df_eval"]
+        f_psd_low = min(20.0, bw_cfg["f_low"])
+        f_psd_high = max(1200.0, bw_cfg["f_high"])
+        psd_full_db, f_full, df, _ = compute_welch_psd(
+            audio_sig, self.fs, f_psd_low, f_psd_high, bw_cfg["twin_welch"], bw_cfg["df_eval"]
         )
+        # Dataset-agnostic Low-to-Mid band power ratio (20-250 Hz diesel/hull vs 300-1200 Hz mid-band)
+        p_full_lin = 10.0 ** (psd_full_db / 10.0)
+        low_mask = (f_full >= 20.0) & (f_full <= 250.0)
+        mid_mask = (f_full >= 300.0) & (f_full <= 1200.0)
+        p_low = float(np.mean(p_full_lin[low_mask])) if np.any(low_mask) else 1e-12
+        p_mid = float(np.mean(p_full_lin[mid_mask])) if np.any(mid_mask) else 1e-12
+        low_mid_ratio_db = float(10.0 * np.log10((p_low + 1e-12) / (p_mid + 1e-12)))
+
+        roi_mask = (f_full >= bw_cfg["f_low"]) & (f_full <= bw_cfg["f_high"])
+        psd_db = psd_full_db[roi_mask]
+        f_grid = f_full[roi_mask]
+
         _, dom_lobe, _, ocean_ambient_db = segment_macro_lobes(psd_db, f_grid, df, bw_cfg["prom_split_db"])
         dom_lobe["ocean_ambient_db"] = float(ocean_ambient_db)
         snr_peak_db = float(dom_lobe["peak_psd"] - ocean_ambient_db)
         dom_lobe["snr_peak"] = snr_peak_db
+        dom_lobe["low_mid_ratio_db"] = low_mid_ratio_db
         snr_norm = float((snr_peak_db - 8.0) / 6.0)
+        low_mid_norm = float(low_mid_ratio_db / 10.0)
 
         num_buffers = len(audio_sig) // self.samples_per_buf
         buffer_features = []
@@ -320,9 +336,11 @@ class OfflineFeatureExtractor:
             if s_out["found"] and np.isfinite(s_out["main_bw"]) and s_out["main_bw"] > 0:
                 f_dom = float(s_out["main_f"])
                 bw_measured = float(s_out["main_bw"])
+                ped_bw = float(s_out.get("pedestal_bw", bw_measured))
             else:
                 f_dom = float(dom_lobe["peak_freq"])
                 bw_measured = float(max(10.0, dom_lobe["bandwidth"]))
+                ped_bw = bw_measured
 
             plv_r, f_pll_mean, f_pll_std, verif_err, phase_std_rad, env_slice = self.run_slice_digital_pll(
                 audio_sig, slice_start, self.samples_per_buf, f_dom, bw_measured, bw_cfg["f_low"], bw_cfg["f_high"]
@@ -336,6 +354,7 @@ class OfflineFeatureExtractor:
                 "f_dom": f_dom,
                 "f_pll": f_pll_mean,
                 "bw_measured": bw_measured,
+                "pedestal_bw": ped_bw,
                 "plv_r": plv_r,
                 "inst_freq_std": f_pll_std,
                 "freq_verif_err": verif_err,
@@ -346,22 +365,32 @@ class OfflineFeatureExtractor:
 
         f_doms = np.array([b["f_dom"] for b in buffer_features], dtype=np.float64)
         bws = np.array([b["bw_measured"] for b in buffer_features], dtype=np.float64)
+        ped_bws = np.array([b["pedestal_bw"] for b in buffer_features], dtype=np.float64)
         plvs = np.array([b["plv_r"] for b in buffer_features], dtype=np.float64)
         f_stds = np.array([b["inst_freq_std"] for b in buffer_features], dtype=np.float64)
 
         med_k_matlab = max(3, int(round(5.0 / self.buffer_sec)))
         bws_med = self.medfilt1_matlab(bws, med_k_matlab)
+        ped_bws_med = self.medfilt1_matlab(ped_bws, med_k_matlab)
         plvs_med = self.medfilt1_matlab(plvs, med_k_matlab)
 
         minute_tib_stats = self.compute_multiscale_tib_fairness(
             bws_med, max_window_sec=self.cfg.tib_max_win_sec, pre_filtered=True
         )
+        pedestal_tib_stats = self.compute_multiscale_tib_fairness(
+            ped_bws_med, max_window_sec=self.cfg.tib_max_win_sec, pre_filtered=True
+        )
+        minute_tib_stats["pedestal_mean_tib"] = float(pedestal_tib_stats["minute_mean_tib"])
+        minute_tib_stats["pedestal_std_tib"] = float(pedestal_tib_stats["minute_std_tib"])
+        minute_tib_stats["pedestal_fair_tib"] = float(pedestal_tib_stats["minute_fair_tib"])
+        minute_tib_stats["pedestal_delta_tib"] = float(pedestal_tib_stats["delta_tib"])
 
         state_sequence = []
         prev_jain = 1.0
         for j in range(num_buffers):
             win_start = max(0, j - 11)
             bw_win = bws_med[win_start: j + 1]
+            ped_win = ped_bws_med[win_start: j + 1]
             plv_win = plvs_med[win_start: j + 1]
             fstd_win = f_stds[win_start: j + 1]
             df_dt = float(abs(f_doms[j] - f_doms[j - 1])) if j > 0 else 0.0
@@ -386,6 +415,7 @@ class OfflineFeatureExtractor:
             prev_jain = jain_tib_fairness
 
             bw_mean = float(np.mean(bw_win))
+            ped_bw_mean = float(np.mean(ped_win))
             bw_std = float(np.std(bw_win))
             plv_mean = float(np.mean(plv_win))
             fstd_mean = float(np.mean(fstd_win))
@@ -400,6 +430,8 @@ class OfflineFeatureExtractor:
                 (plv_mean - 0.36) * 5.0,
                 (fstd_mean - 11.5) / 3.5,
                 snr_norm,
+                (ped_bw_mean - 55.0) / 35.0,
+                low_mid_norm,
             ], dtype=np.float32)
 
             state_sequence.append({
@@ -412,6 +444,10 @@ class OfflineFeatureExtractor:
                 "minute_delta_tib": float(minute_tib_stats["delta_tib"]),
                 "minute_tib_2s": float(minute_tib_stats["tib_2s"]),
                 "minute_tib_60s": float(minute_tib_stats["tib_end"]),
+                "pedestal_mean_tib": float(pedestal_tib_stats["minute_mean_tib"]),
+                "pedestal_std_tib": float(pedestal_tib_stats["minute_std_tib"]),
+                "pedestal_fair_tib": float(pedestal_tib_stats["minute_fair_tib"]),
+                "pedestal_delta_tib": float(pedestal_tib_stats["delta_tib"]),
                 "step_mean_tib": mean_tib_multiscale,
                 "step_std_tib": std_tib_multiscale,
                 "step_fair_tib": jain_tib_fairness,
@@ -421,7 +457,9 @@ class OfflineFeatureExtractor:
                 "djain_dt": djain_dt,
                 "df_dt": df_dt,
                 "bw_measured": buffer_features[j]["bw_measured"],
+                "pedestal_bw": buffer_features[j]["pedestal_bw"],
                 "bw_mean": bw_mean,
+                "pedestal_bw_mean": ped_bw_mean,
                 "f_dom": buffer_features[j]["f_dom"],
                 "f_pll": buffer_features[j]["f_pll"],
                 "plv_r": buffer_features[j]["plv_r"],
@@ -431,6 +469,7 @@ class OfflineFeatureExtractor:
                 "coherence_time": buffer_features[j]["coherence_time"],
                 "masd": buffer_features[j]["masd"],
                 "snr_peak": snr_peak_db,
+                "low_mid_ratio_db": low_mid_ratio_db,
                 "ocean_ambient_db": float(ocean_ambient_db),
             })
 

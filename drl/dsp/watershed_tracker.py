@@ -209,6 +209,7 @@ def compute_single_slice_watershed_bandwidth(sig_slice, fs, dom_lobe, cfg=None):
     out = {
         "found": False,
         "main_bw": np.nan,
+        "pedestal_bw": np.nan,
         "f_segment": np.array([]),
         "mag_segment": np.array([]),
         "noise_floor": np.nan,
@@ -357,6 +358,23 @@ def compute_single_slice_watershed_bandwidth(sig_slice, fs, dom_lobe, cfg=None):
     out["r_freq"] = float(f_segment[r_idx])
     out["main_bw"] = float(out["r_freq"] - out["l_freq"])
     out["target_mag"] = noise_floor
+
+    # Dual-level Pedestal Watershed: capture broadband cavitation skirt above +3 dB noise floor
+    ped_thresh = noise_floor * (10.0 ** (3.0 / 20.0))
+    ped_r_idx = pk_idx
+    for i in range(pk_idx + 1, len(mag_smooth)):
+        if mag_smooth[i] >= ped_thresh:
+            ped_r_idx = i
+        else:
+            break
+    ped_l_idx = pk_idx
+    for i in range(pk_idx - 1, -1, -1):
+        if mag_smooth[i] >= ped_thresh:
+            ped_l_idx = i
+        else:
+            break
+    ped_bw = float(f_segment[ped_r_idx] - f_segment[ped_l_idx])
+    out["pedestal_bw"] = float(max(out["main_bw"], ped_bw))
     return out
 
 
